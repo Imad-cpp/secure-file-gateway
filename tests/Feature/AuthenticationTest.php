@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -108,12 +109,21 @@ class AuthenticationTest extends TestCase
 
         $token = $user->createToken('phpunit')->plainTextToken;
 
+        $this->assertDatabaseCount('personal_access_tokens', 1);
+
         $this->withHeader('Authorization', 'Bearer '.$token)
             ->postJson('/api/v1/auth/logout')
             ->assertNoContent();
 
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+
+        // Laravel caches resolved guard instances for the application lifetime.
+        // Clear them so the follow-up request proves the deleted bearer token cannot authenticate.
+        Auth::forgetGuards();
+
         $this->withHeader('Authorization', 'Bearer '.$token)
             ->getJson('/api/v1/me')
-            ->assertUnauthorized();
+            ->assertUnauthorized()
+            ->assertJsonPath('error.code', 'UNAUTHENTICATED');
     }
 }
