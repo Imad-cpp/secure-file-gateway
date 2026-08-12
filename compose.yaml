@@ -21,6 +21,27 @@ services:
       minio:
         condition: service_started
 
+  worker:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    working_dir: /var/www/html
+    command: >-
+      sh -lc "composer install --no-interaction --prefer-dist --no-progress &&
+      test -f .env || cp .env.example .env &&
+      php artisan queue:work redis --queue=scans --sleep=1 --tries=3 --timeout=30"
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      clamav:
+        condition: service_started
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -73,6 +94,12 @@ services:
       mc anonymous set none local/sfg-quarantine;
       mc anonymous set none local/sfg-clean;"
 
+  clamav:
+    image: clamav/clamav:1.5
+    volumes:
+      - clamav-db:/var/lib/clamav
+
 volumes:
   postgres-data:
   minio-data:
+  clamav-db:
