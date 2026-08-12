@@ -81,6 +81,8 @@ Any expansion requires explicit security review and tests.
 
 **Why:** prevents path/object-key manipulation and avoids making storage topology depend on user input.
 
+**Implementation:** quarantine keys use server-owned UUIDs and do not preserve a user-provided extension or filename.
+
 ## D-009 — Per-owner duplicate detection only
 
 **Status:** Accepted for V1
@@ -88,6 +90,8 @@ Any expansion requires explicit security review and tests.
 **Decision:** SHA-256 is used to detect a duplicate within the same authenticated owner's files. V1 does not expose cross-user duplicate information or perform cross-user physical deduplication.
 
 **Why:** global deduplication can become a presence oracle and is unnecessary for the portfolio objective.
+
+**Implementation:** owner + SHA-256 uniqueness is enforced in PostgreSQL in addition to the application pre-check, protecting the boundary from concurrent duplicate races.
 
 ## D-010 — Short-lived signed delivery
 
@@ -169,7 +173,7 @@ The real scanner technology will be selected during implementation and documente
 
 **Why:** the key limits repeated credential attempts while avoiding a single global bucket for every account.
 
-**Configuration:** `AUTH_RATE_LIMIT_PER_MINUTE=5` by default. Upload, download and general API rate limits remain separate decisions.
+**Configuration:** `AUTH_RATE_LIMIT_PER_MINUTE=5` by default. Upload throttling is independently configured by D-020.
 
 ## D-019 — API bearer tokens expire by default
 
@@ -181,13 +185,33 @@ The real scanner technology will be selected during implementation and documente
 
 **Configuration:** `API_TOKEN_TTL_MINUTES=720` by default.
 
+## D-020 — Upload creation has an independent throttle
+
+**Status:** Accepted for V1
+
+**Decision:** authenticated upload creation uses a default limit of 10 requests per minute keyed by owner ID + client IP.
+
+**Why:** upload is materially more expensive than a metadata read and needs an independent control rather than sharing the authentication bucket.
+
+**Configuration:** `UPLOAD_RATE_LIMIT_PER_MINUTE=10` by default.
+
+## D-021 — Quarantine precedes content-derived acceptance
+
+**Status:** Accepted for V1
+
+**Decision:** after authentication, request presence, size and extension checks, bytes are written to private quarantine before server-side MIME verification, hashing and duplicate persistence decisions.
+
+**Why:** no untrusted upload should be treated as a normal clean object while content-derived checks are running. The quarantine zone is the containment boundary.
+
+**Failure behavior:** normal MIME mismatch, duplicate and metadata-persistence failure paths remove the newly written quarantine object. Reconciliation for cleanup failures remains hardening work.
+
 ## Deferred decisions
 
 The following are intentionally not frozen yet:
 
 - exact malware-scanner engine;
 - exact queue retry/backoff numbers;
-- upload/download/general API rate-limit numbers beyond the authentication throttle;
+- download/general API rate-limit numbers beyond the implemented authentication and upload throttles;
 - signed URL lifetime;
 - retention/cleanup durations;
 - production hosting provider;
