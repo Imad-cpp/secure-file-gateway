@@ -2,8 +2,10 @@
 
 namespace App\Providers;
 
+use App\Contracts\MalwareScanner;
 use App\Models\StoredFile;
 use App\Policies\StoredFilePolicy;
+use App\Scanning\ClamAvMalwareScanner;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -15,7 +17,7 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        // Application services are registered as implementation modules arrive.
+        $this->app->bind(MalwareScanner::class, ClamAvMalwareScanner::class);
     }
 
     public function boot(): void
