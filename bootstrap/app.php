@@ -1,9 +1,13 @@
 <?php
 
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -12,10 +16,50 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // Security middleware is added with the identity and ingestion layers.
+        // API authentication and throttling are attached at route level.
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        $exceptions->render(function (AuthenticationException $exception, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'error' => [
+                    'code' => 'UNAUTHENTICATED',
+                    'message' => 'Authentication required.',
+                ],
+            ], Response::HTTP_UNAUTHORIZED);
+        });
+
+        $exceptions->render(function (ValidationException $exception, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'error' => [
+                    'code' => 'VALIDATION_FAILED',
+                    'message' => 'The given data was invalid.',
+                    'fields' => $exception->errors(),
+                ],
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        });
+
+        $exceptions->render(function (ThrottleRequestsException $exception, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'error' => [
+                    'code' => 'RATE_LIMITED',
+                    'message' => 'Too many requests.',
+                ],
+            ], Response::HTTP_TOO_MANY_REQUESTS, $exception->getHeaders());
+        });
     })->create();
