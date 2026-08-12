@@ -2,7 +2,7 @@
 
 Security-focused file upload and delivery API built around **validation, quarantine, asynchronous scanning, auditability and controlled access**.
 
-> **Status:** Identity + ownership implemented. Laravel 13, local infrastructure, bearer-token authentication and owner-scoped metadata access are in place. Secure file ingestion and scanning are not implemented yet; no production-readiness claim is made.
+> **Status:** Secure ingestion implemented. Laravel 13, local infrastructure, bearer-token authentication, owner-scoped metadata and private quarantine ingestion are in place. Malware scanning and clean delivery are not implemented yet; no production-readiness claim is made.
 
 ## Why this project exists
 
@@ -36,6 +36,8 @@ Queue scan
 └── unsafe / scanner error → non-downloadable state
 ```
 
+The flow is implemented through `QUARANTINED`. Queue scanning and clean delivery are the next layers.
+
 ## Security invariants
 
 - Every upload is untrusted by default.
@@ -53,7 +55,7 @@ Queue scan
 
 `Laravel 13` · `PHP 8.3+` · `PostgreSQL` · `Redis` · `S3-compatible private storage` · `Laravel Sanctum` · `Docker Compose` · `OpenAPI`
 
-The application now wires Laravel Sanctum bearer tokens, PostgreSQL/Redis configuration, UUID-backed ownership metadata and two private S3-compatible storage disks. The malware-scanner adapter arrives with the scanning layer rather than being claimed before use.
+The application now wires Laravel Sanctum bearer tokens, PostgreSQL/Redis configuration, UUID-backed ownership metadata, private quarantine ingestion and two private S3-compatible storage zones. The malware-scanner adapter arrives with the scanning layer rather than being claimed before use.
 
 ## Identity + ownership
 
@@ -77,7 +79,46 @@ GET  /api/v1/files/{file}
 - Reading another user's file identifier returns `404` to reduce resource-enumeration leakage.
 - Metadata responses never expose owner IDs, quarantine keys or clean-storage keys.
 
-The file rows in this phase establish ownership and authorization semantics only; upload, quarantine and scanning are the next implementation layer.
+## Secure ingestion
+
+`POST /api/v1/files` now implements the untrusted-file boundary through quarantine.
+
+```text
+Authenticated multipart upload
+    ↓
+10 MiB size limit
+    ↓
+Extension allowlist
+    ↓
+Server-generated object key
+    ↓
+Private quarantine write
+    ↓
+Server-side MIME detection
+    ↓
+Extension/MIME agreement
+    ↓
+SHA-256
+    ↓
+Per-owner duplicate check
+    ↓
+Metadata persistence
+    ↓
+202 Accepted / QUARANTINED
+```
+
+Implemented controls:
+
+- V1 accepts PDF, PNG, JPEG and plain text only.
+- Client-declared MIME is not trusted; PHP Fileinfo inspects the uploaded bytes.
+- Storage keys are generated from server-owned UUIDs and never reuse the original filename.
+- Quarantine storage stays private.
+- SHA-256 duplicate detection is scoped to one owner.
+- PostgreSQL enforces owner + SHA-256 uniqueness so concurrent duplicate requests cannot bypass the application pre-check.
+- The same bytes may exist for different owners; the API does not reveal cross-user duplicate information.
+- A new quarantine object is removed when MIME verification, duplicate checks or metadata persistence reject the upload.
+- Upload creation has an independent default limit of 10 requests per minute per authenticated owner + IP.
+- Successful ingestion returns `202 Accepted` and remains `QUARANTINED`; scanning is not claimed yet.
 
 ## Local development
 
@@ -145,11 +186,11 @@ POST   /api/v1/auth/register
 POST   /api/v1/auth/login
 POST   /api/v1/auth/logout
 GET    /api/v1/me
+POST   /api/v1/files
 GET    /api/v1/files
 GET    /api/v1/files/{file}
 
 # Planned next layers
-POST   /api/v1/files
 DELETE /api/v1/files/{file}
 POST   /api/v1/files/{file}/download
 
@@ -157,13 +198,13 @@ GET    /health/live
 GET    /health/ready
 ```
 
-A successful upload is planned to return `202 Accepted`; scanning is asynchronous and the file stays non-downloadable while it is processing.
+A successful upload returns `202 Accepted`; it stays non-downloadable in `QUARANTINED` until the scanning layer is implemented and returns a clean result.
 
 ## Quality gate
 
 Pull requests and pushes to `main` run the `Application Quality` workflow. The gate validates the Composer manifest, installs dependencies, boots the application, enforces Pint formatting, runs the complete feature/unit test suite and audits resolved Composer dependencies.
 
-Identity coverage includes strong-password validation, generic credential failures, login throttling, bearer-token issuance/revocation, unauthenticated rejection, owner-scoped listing and negative cross-user authorization tests.
+Coverage includes identity/ownership controls plus ingestion authentication, size/extension policy, server-side MIME mismatch rejection, quarantine cleanup, SHA-256 duplicate isolation and upload throttling.
 
 GitHub Actions permissions are read-only, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs.
 
@@ -193,8 +234,8 @@ The goal is to make the core security boundary **small enough to understand and 
 1. **Foundation** — architecture, threat model, API contract and Definition of Done. **✓**
 2. **Application scaffold** — Laravel structure, local dependencies and quality tooling. **✓**
 3. **Identity + ownership** — token auth and object-level authorization. **✓**
-4. **Secure ingestion** — quarantine, file policy, MIME detection, hashing and duplicate handling. **← next**
-5. **Scanning pipeline** — queue worker, scanner adapter and fail-closed state transitions.
+4. **Secure ingestion** — quarantine, file policy, MIME detection, hashing and duplicate handling. **✓**
+5. **Scanning pipeline** — queue worker, scanner adapter and fail-closed state transitions. **← next**
 6. **Controlled delivery** — clean storage, signed access and deletion behavior.
 7. **Hardening** — audit events, rate limits, security tests and dependency/CI controls.
 8. **V1 evidence** — OpenAPI, reproducible demo, final documentation and tagged release.
