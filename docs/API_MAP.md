@@ -11,34 +11,33 @@
 - Error responses use stable machine-readable codes.
 - No endpoint returns a quarantine object URL.
 
-This document defines the V1 contract before implementation. Exact response envelopes may be refined when the OpenAPI specification is written, but security semantics should not drift silently.
+This document defines the V1 contract alongside implementation. Exact response envelopes may be refined when the OpenAPI specification is written, but security semantics should not drift silently.
 
 ## Implementation status
 
-Implemented in the identity + ownership layer:
+Implemented:
 
 - `POST /api/v1/auth/register`;
 - `POST /api/v1/auth/login`;
 - `POST /api/v1/auth/logout`;
 - `GET /api/v1/me`;
+- `POST /api/v1/files` through the `QUARANTINED` state;
 - `GET /api/v1/files`;
 - `GET /api/v1/files/{file}`.
 
 Still planned for later layers:
 
-- `POST /api/v1/files`;
+- scan job enqueue and scan-driven lifecycle transitions;
 - `DELETE /api/v1/files/{file}`;
 - `POST /api/v1/files/{file}/download`.
 
-The implemented file endpoints expose ownership-safe metadata only. No upload, quarantine, scan or delivery capability is implied by the existence of a stored-file metadata row.
+No implemented endpoint exposes quarantine object keys, clean object keys or cross-user duplicate information.
 
 ## Authentication
 
 ### `POST /api/v1/auth/register`
 
 Creates a local demo user for the portfolio application.
-
-**V1 purpose:** make the repository runnable end-to-end without requiring an external identity provider.
 
 Inputs:
 
@@ -81,34 +80,46 @@ Returns minimal current-user metadata.
 
 ### `POST /api/v1/files`
 
-**Status:** Planned for secure-ingestion layer.
+**Status:** Implemented through quarantine. Malware scanning is not implemented yet.
 
-Accepts a file as `multipart/form-data`.
+Accepts one `file` field as `multipart/form-data`.
 
-**Auth required.**
+**Auth required + upload rate limit.**
 
-V1 validation order should fail as early as practical:
+Implemented validation/processing order:
 
 1. authentication;
-2. rate limit;
+2. upload rate limit;
 3. request/file presence;
-4. size limit;
+4. 10 MiB size limit;
 5. extension allowlist;
-6. quarantine write with generated name;
-7. server-side MIME detection;
-8. SHA-256 calculation;
-9. per-owner duplicate check;
-10. file-record persistence;
-11. scan job enqueue.
+6. private quarantine write with a server-generated extensionless object name;
+7. server-side MIME detection from file bytes;
+8. extension/MIME agreement check;
+9. SHA-256 calculation;
+10. per-owner duplicate check;
+11. file-record persistence with owner + SHA-256 database uniqueness;
+12. return `202 Accepted` with state `QUARANTINED`.
 
-Planned success status: `202 Accepted` because clean availability is asynchronous.
+The scanning layer will later enqueue scan work and advance the lifecycle from `QUARANTINED` to `SCANNING`.
 
-Example response shape:
+Implemented V1 allowlist:
+
+| Extension | Accepted detected MIME |
+|---|---|
+| `.pdf` | `application/pdf` |
+| `.png` | `image/png` |
+| `.jpg`, `.jpeg` | `image/jpeg` |
+| `.txt` | `text/plain` |
+
+All types share a 10 MiB maximum.
+
+Success response shape:
 
 ```json
 {
   "data": {
-    "id": "...",
+    "id": "uuid",
     "original_name": "report.pdf",
     "detected_mime_type": "application/pdf",
     "size_bytes": 120034,
@@ -119,7 +130,19 @@ Example response shape:
 }
 ```
 
-UUID identifiers are now the accepted V1 implementation choice; their opacity does not replace authorization.
+The response deliberately omits owner IDs and storage keys.
+
+Cleanup semantics in the current ingestion layer:
+
+- disallowed extension and oversize failures occur before quarantine write;
+- MIME mismatch, same-owner duplicate rejection and metadata persistence failure remove the newly written quarantine object on the normal failure path;
+- cleanup reconciliation for an unavailable storage backend remains hardening work.
+
+Duplicate semantics:
+
+- duplicate detection is SHA-256 based and scoped to the authenticated owner;
+- owner + SHA-256 uniqueness is enforced in the database to protect against concurrent races;
+- identical bytes for different owners are allowed and do not produce a cross-user presence signal.
 
 ### `GET /api/v1/files`
 
@@ -135,7 +158,7 @@ Current behavior:
 - pagination defaults to 20 items;
 - no global file search exists.
 
-State filtering remains planned for the ingestion/lifecycle layer.
+State filtering remains planned for lifecycle refinement.
 
 ### `GET /api/v1/files/{file}`
 
@@ -182,24 +205,11 @@ Planned behavior:
 - response does not cache as a permanent public location;
 - audit event records successful/denied request without storing the signed URL.
 
-Possible response:
-
-```json
-{
-  "data": {
-    "url": "https://storage.example/...signed...",
-    "expires_at": "..."
-  }
-}
-```
-
-A direct `GET` redirect may be considered later, but V1 documentation starts with an explicit capability response because it makes expiry semantics obvious.
-
 ## Scan status
 
 The file resource itself is the source of truth for user-visible scan state. A separate public `/scans` resource is not planned for V1.
 
-Clients poll `GET /api/v1/files/{file}` until the file reaches a terminal state or becomes `AVAILABLE` once scanning exists.
+Current ingestion stops at `QUARANTINED`. Once scanning exists, clients poll `GET /api/v1/files/{file}` until the file reaches a terminal state or becomes `AVAILABLE`.
 
 ## Audit endpoint
 
@@ -223,47 +233,46 @@ Response may summarize dependency state without credentials, host secrets, bucke
 
 ## Lifecycle states
 
-Externally readable state values planned for V1:
+Externally readable V1 states:
 
-- `QUARANTINED`;
-- `SCANNING`;
-- `AVAILABLE`;
-- `REJECTED`;
-- `SCAN_FAILED`;
-- `DELETED`.
-
-`RECEIVED` may remain an internal transient state if implementation does not need to expose it.
+- `QUARANTINED` — currently emitted by successful ingestion;
+- `SCANNING` — planned scanning layer;
+- `AVAILABLE` — planned after a clean scanner result;
+- `REJECTED` — planned unsafe result;
+- `SCAN_FAILED` — planned scanner failure/error;
+- `DELETED` — planned lifecycle work.
 
 Clients cannot submit a desired state.
 
 ## Error contract
 
-Implemented identity-layer error envelope follows the stable shape:
+Stable error envelope:
 
 ```json
 {
   "error": {
-    "code": "UNAUTHENTICATED",
-    "message": "Authentication required."
+    "code": "FILE_TYPE_NOT_ALLOWED",
+    "message": "The uploaded file extension is not allowed."
   }
 }
 ```
 
-As later layers arrive, request correlation may add `request_id` without changing the core error-code contract.
+Implemented error codes relevant to the current API:
 
-Initial stable error codes include or plan:
+- `UNAUTHENTICATED`;
+- `VALIDATION_FAILED`;
+- `RATE_LIMITED`;
+- `FILE_TOO_LARGE`;
+- `FILE_TYPE_NOT_ALLOWED`;
+- `FILE_TYPE_MISMATCH`;
+- `DUPLICATE_FILE`;
+- `DEPENDENCY_UNAVAILABLE` for ingestion storage/metadata dependency failures.
 
-- `UNAUTHENTICATED` — implemented;
-- `VALIDATION_FAILED` — implemented;
-- `RATE_LIMITED` — implemented for authentication;
-- `FORBIDDEN` — reserved where disclosure is acceptable;
-- `FILE_TOO_LARGE` — planned;
-- `FILE_TYPE_NOT_ALLOWED` — planned;
-- `FILE_TYPE_MISMATCH` — planned;
-- `DUPLICATE_FILE` — planned;
-- `FILE_NOT_AVAILABLE` — planned;
-- `SCAN_FAILED` — planned;
-- `DEPENDENCY_UNAVAILABLE` — planned.
+Reserved for later layers:
+
+- `FORBIDDEN` where disclosure is acceptable;
+- `FILE_NOT_AVAILABLE`;
+- `SCAN_FAILED`.
 
 User-facing messages must not expose object keys, filesystem paths, stack traces or whether another user's matching hash exists.
 
@@ -276,26 +285,24 @@ User-facing messages must not expose object keys, filesystem paths, stack traces
 | logout success | `204` |
 | asynchronous upload accepted | `202` |
 | metadata read success | `200` |
-| download capability issued | `200` |
-| deletion success | `204` or idempotent equivalent |
-| invalid input | `422` |
+| invalid input / file policy rejection | `422` |
 | unauthenticated | `401` |
 | unauthorized/not-owned file resource | `404` |
 | per-owner duplicate | `409` |
 | rate limit | `429` |
 | temporary dependency failure | `503` |
-
-Exact deletion semantics will be frozen in OpenAPI before V1 release.
+| download capability issued | `200` planned |
+| deletion success | `204` or idempotent equivalent planned |
 
 ## Rate-limit surfaces
 
-Implemented:
+Implemented independently:
 
-- authentication surfaces: 5 attempts per minute by normalized email + IP by default.
+- authentication surfaces: 5 attempts per minute by normalized email + IP by default;
+- upload creation: 10 attempts per minute by authenticated owner + IP by default.
 
 Still to be selected and tested independently:
 
-- upload creation;
 - download-capability issuance;
 - general authenticated API reads.
 
