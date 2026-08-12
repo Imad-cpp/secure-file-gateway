@@ -2,7 +2,7 @@
 
 Security-focused file upload and delivery API built around **validation, quarantine, asynchronous scanning, auditability and controlled access**.
 
-> **Status:** Foundation review. The architecture and security contract are being defined before the application scaffold. No production-readiness claim is made yet.
+> **Status:** Application scaffold. Laravel 13, local infrastructure and the first CI quality gate are in place. Identity, file ingestion and scanning are not implemented yet; no production-readiness claim is made.
 
 ## Why this project exists
 
@@ -49,11 +49,38 @@ Queue scan
 - Duplicate detection is scoped to the same owner so it does not become a cross-user presence oracle.
 - Audit/logging must not contain file bodies, bearer tokens, credentials or signed URLs.
 
-## Planned V1 stack
+## V1 stack
 
-`Laravel 13` · `PostgreSQL` · `Redis` · `S3-compatible private storage` · `Laravel Sanctum` · `Docker Compose` · `OpenAPI`
+`Laravel 13` · `PHP 8.3+` · `PostgreSQL` · `Redis` · `S3-compatible private storage` · `Laravel Sanctum` · `Docker Compose` · `OpenAPI`
 
-Malware scanning sits behind an application interface. The real scanner engine is deliberately deferred until implementation so the domain is not coupled to one vendor/tool before the integration is evaluated.
+The scaffold currently wires Laravel, PostgreSQL/Redis configuration and two private S3-compatible storage disks. Sanctum and the malware-scanner adapter arrive with their implementation layers rather than being claimed before use.
+
+## Local development
+
+The development stack uses Docker Compose with PostgreSQL, Redis and MinIO. The MinIO initializer creates two private buckets: `sfg-quarantine` and `sfg-clean`.
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+The API is then available at `http://localhost:8000` and the MinIO console at `http://localhost:9001`.
+
+The credentials in `.env.example` are deliberately local-only examples. They must never be reused in shared, staging or production environments.
+
+Useful checks:
+
+```bash
+docker compose run --rm app vendor/bin/pint --test
+docker compose run --rm app php artisan test
+```
+
+## Health semantics
+
+- `GET /health/live` returns `200` when Laravel can boot and serve a request.
+- `GET /health/ready` currently returns `503` deliberately. Readiness will turn healthy only after concrete PostgreSQL, Redis and object-storage dependency probes exist.
+
+This keeps the scaffold fail-closed instead of pretending dependencies are ready before they are actually verified.
 
 ## Initial V1 file policy
 
@@ -106,6 +133,12 @@ GET    /health/ready
 
 A successful upload is planned to return `202 Accepted`; scanning is asynchronous and the file stays non-downloadable while it is processing.
 
+## Quality gate
+
+Pull requests and pushes to `main` run the `Application Quality` workflow. The initial gate validates the Composer manifest, installs dependencies, boots the application, enforces Pint formatting, runs the feature test suite and audits resolved Composer dependencies.
+
+GitHub Actions permissions are read-only, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs.
+
 ## What V1 will prove
 
 When complete, this repository should provide public evidence of:
@@ -129,8 +162,8 @@ The goal is to make the core security boundary **small enough to understand and 
 
 ## Roadmap
 
-1. **Foundation** — architecture, threat model, API contract and Definition of Done. **← current**
-2. **Application scaffold** — Laravel structure, local dependencies and quality tooling.
+1. **Foundation** — architecture, threat model, API contract and Definition of Done. **✓**
+2. **Application scaffold** — Laravel structure, local dependencies and quality tooling. **← current**
 3. **Identity + ownership** — token auth and object-level authorization.
 4. **Secure ingestion** — quarantine, file policy, MIME detection, hashing and duplicate handling.
 5. **Scanning pipeline** — queue worker, scanner adapter and fail-closed state transitions.
@@ -140,4 +173,4 @@ The goal is to make the core security boundary **small enough to understand and 
 
 ## Repository principle
 
-This project will not claim production maturity before the implementation, tests and operational evidence support it. Documentation is treated as an engineering contract and will change with the code when accepted assumptions change.
+This project will not claim production maturity before the implementation, tests and operational evidence support it. Documentation is treated as an engineering contract and changes with the code when accepted assumptions change.
