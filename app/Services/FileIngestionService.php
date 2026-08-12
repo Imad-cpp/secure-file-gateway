@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\IngestionException;
+use App\Jobs\ScanStoredFile;
 use App\Models\StoredFile;
 use App\Models\User;
 use Illuminate\Database\QueryException;
@@ -114,7 +115,10 @@ class FileIngestionService
                 );
             }
 
-            return $storedFile->refresh();
+            $storedFile = $storedFile->refresh();
+            ScanStoredFile::dispatch($storedFile->id);
+
+            return $storedFile;
         } catch (Throwable $exception) {
             $this->cleanupQuarantine($objectKey);
 
