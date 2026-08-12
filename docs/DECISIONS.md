@@ -143,13 +143,51 @@ The real scanner technology will be selected during implementation and documente
 
 **Why:** the repository is intended to demonstrate traceable engineering decisions, not only final code.
 
+## D-016 — UUID identifiers for users and stored files
+
+**Status:** Accepted for V1
+
+**Decision:** user and stored-file primary/public identifiers use UUIDs rather than sequential integers.
+
+**Why:** externally visible identifiers should be opaque and should not reveal row counts or simple enumeration order.
+
+**Boundary:** UUIDs are not authorization. Every resource operation still requires explicit ownership checks.
+
+## D-017 — Foreign-owned file identifiers fail as not found
+
+**Status:** Accepted for V1
+
+**Decision:** when an authenticated user supplies another user's file identifier, owner-policy denial is rendered as `404` rather than a distinct `403` ownership signal.
+
+**Why:** this reduces resource-enumeration leakage while preserving normal owner access semantics.
+
+## D-018 — Authentication throttle is explicit and testable
+
+**Status:** Accepted for V1
+
+**Decision:** registration/login authentication surfaces use a default limit of 5 attempts per minute keyed by normalized email + client IP.
+
+**Why:** the key limits repeated credential attempts while avoiding a single global bucket for every account.
+
+**Configuration:** `AUTH_RATE_LIMIT_PER_MINUTE=5` by default. Upload, download and general API rate limits remain separate decisions.
+
+## D-019 — API bearer tokens expire by default
+
+**Status:** Accepted for V1
+
+**Decision:** newly issued Sanctum bearer tokens have a default 720-minute (12-hour) lifetime, and logout revokes only the current token.
+
+**Why:** a portfolio API should not create indefinite credentials by default, while current-token logout avoids unexpectedly terminating independent client sessions.
+
+**Configuration:** `API_TOKEN_TTL_MINUTES=720` by default.
+
 ## Deferred decisions
 
 The following are intentionally not frozen yet:
 
 - exact malware-scanner engine;
 - exact queue retry/backoff numbers;
-- exact API rate-limit numbers;
+- upload/download/general API rate-limit numbers beyond the authentication throttle;
 - signed URL lifetime;
 - retention/cleanup durations;
 - production hosting provider;

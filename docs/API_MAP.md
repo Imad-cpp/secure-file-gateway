@@ -13,6 +13,25 @@
 
 This document defines the V1 contract before implementation. Exact response envelopes may be refined when the OpenAPI specification is written, but security semantics should not drift silently.
 
+## Implementation status
+
+Implemented in the identity + ownership layer:
+
+- `POST /api/v1/auth/register`;
+- `POST /api/v1/auth/login`;
+- `POST /api/v1/auth/logout`;
+- `GET /api/v1/me`;
+- `GET /api/v1/files`;
+- `GET /api/v1/files/{file}`.
+
+Still planned for later layers:
+
+- `POST /api/v1/files`;
+- `DELETE /api/v1/files/{file}`;
+- `POST /api/v1/files/{file}/download`.
+
+The implemented file endpoints expose ownership-safe metadata only. No upload, quarantine, scan or delivery capability is implied by the existence of a stored-file metadata row.
+
 ## Authentication
 
 ### `POST /api/v1/auth/register`
@@ -21,28 +40,34 @@ Creates a local demo user for the portfolio application.
 
 **V1 purpose:** make the repository runnable end-to-end without requiring an external identity provider.
 
-Planned inputs:
+Inputs:
 
 - `name`;
 - `email`;
 - `password`;
 - `password_confirmation`.
 
-Security notes:
+Implemented security notes:
 
-- email uniqueness enforced;
-- password never returned/logged;
-- production-style verification requirements can be added later without changing file ownership semantics.
+- email is normalized to lowercase and uniqueness is enforced;
+- password requires at least 12 characters with mixed case, numbers and symbols;
+- password is hashed by the model and never returned by the API;
+- authentication surfaces use the named auth rate limiter.
 
 ### `POST /api/v1/auth/login`
 
 Exchanges credentials for a bearer token.
 
-Planned response includes the token exactly once.
+Implemented behavior:
+
+- invalid credentials return the same `UNAUTHENTICATED` response regardless of whether the email exists;
+- the default authentication throttle is 5 attempts per minute keyed by normalized email + IP;
+- the token is returned exactly once;
+- tokens expire after 720 minutes (12 hours) by default.
 
 ### `POST /api/v1/auth/logout`
 
-Revokes the current token.
+Revokes the current token and returns `204 No Content`.
 
 **Auth required.**
 
@@ -55,6 +80,8 @@ Returns minimal current-user metadata.
 ## Files
 
 ### `POST /api/v1/files`
+
+**Status:** Planned for secure-ingestion layer.
 
 Accepts a file as `multipart/form-data`.
 
@@ -81,7 +108,7 @@ Example response shape:
 ```json
 {
   "data": {
-    "id": "01...",
+    "id": "...",
     "original_name": "report.pdf",
     "detected_mime_type": "application/pdf",
     "size_bytes": 120034,
@@ -92,36 +119,45 @@ Example response shape:
 }
 ```
 
-The example is illustrative, not a promise of ULID specifically.
+UUID identifiers are now the accepted V1 implementation choice; their opacity does not replace authorization.
 
 ### `GET /api/v1/files`
+
+**Status:** Implemented.
 
 Lists only files owned by the authenticated user.
 
 **Auth required.**
 
-Planned filters:
+Current behavior:
 
-- `state`;
-- pagination.
+- ownership is scoped in the database query;
+- pagination defaults to 20 items;
+- no global file search exists.
 
-No global file search exists in V1.
+State filtering remains planned for the ingestion/lifecycle layer.
 
 ### `GET /api/v1/files/{file}`
+
+**Status:** Implemented.
 
 Returns metadata for one owned file.
 
 **Auth required + ownership policy.**
 
-Must not expose:
+Foreign-owned file identifiers are denied as `404` to reduce resource-enumeration leakage.
 
+The response does not expose:
+
+- owner ID;
 - quarantine object key;
 - clean object key;
 - raw scanner output;
-- storage credentials;
-- another user's existence through distinct authorization errors.
+- storage credentials.
 
 ### `DELETE /api/v1/files/{file}`
+
+**Status:** Planned for controlled-delivery/lifecycle work.
 
 Deletes/revokes an owned file resource according to lifecycle policy.
 
@@ -132,6 +168,8 @@ Deletion behavior must be idempotent from the API consumer's perspective where p
 Implementation must define cleanup behavior for quarantine/clean objects and audit the deletion outcome.
 
 ### `POST /api/v1/files/{file}/download`
+
+**Status:** Planned for controlled-delivery layer.
 
 Requests controlled access to an owned clean file.
 
@@ -161,7 +199,7 @@ A direct `GET` redirect may be considered later, but V1 documentation starts wit
 
 The file resource itself is the source of truth for user-visible scan state. A separate public `/scans` resource is not planned for V1.
 
-Clients poll `GET /api/v1/files/{file}` until the file reaches a terminal state or becomes `AVAILABLE`.
+Clients poll `GET /api/v1/files/{file}` until the file reaches a terminal state or becomes `AVAILABLE` once scanning exists.
 
 ## Audit endpoint
 
@@ -200,47 +238,49 @@ Clients cannot submit a desired state.
 
 ## Error contract
 
-Planned error envelope:
+Implemented identity-layer error envelope follows the stable shape:
 
 ```json
 {
   "error": {
-    "code": "FILE_TYPE_NOT_ALLOWED",
-    "message": "The uploaded file type is not allowed.",
-    "request_id": "..."
+    "code": "UNAUTHENTICATED",
+    "message": "Authentication required."
   }
 }
 ```
 
-Initial stable error codes should include:
+As later layers arrive, request correlation may add `request_id` without changing the core error-code contract.
 
-- `UNAUTHENTICATED`;
-- `FORBIDDEN`;
-- `VALIDATION_FAILED`;
-- `FILE_TOO_LARGE`;
-- `FILE_TYPE_NOT_ALLOWED`;
-- `FILE_TYPE_MISMATCH`;
-- `DUPLICATE_FILE`;
-- `FILE_NOT_AVAILABLE`;
-- `RATE_LIMITED`;
-- `SCAN_FAILED`;
-- `DEPENDENCY_UNAVAILABLE`.
+Initial stable error codes include or plan:
+
+- `UNAUTHENTICATED` — implemented;
+- `VALIDATION_FAILED` — implemented;
+- `RATE_LIMITED` — implemented for authentication;
+- `FORBIDDEN` — reserved where disclosure is acceptable;
+- `FILE_TOO_LARGE` — planned;
+- `FILE_TYPE_NOT_ALLOWED` — planned;
+- `FILE_TYPE_MISMATCH` — planned;
+- `DUPLICATE_FILE` — planned;
+- `FILE_NOT_AVAILABLE` — planned;
+- `SCAN_FAILED` — planned;
+- `DEPENDENCY_UNAVAILABLE` — planned.
 
 User-facing messages must not expose object keys, filesystem paths, stack traces or whether another user's matching hash exists.
 
 ## HTTP semantics
 
-Planned status usage:
-
 | Situation | Status |
 |---|---:|
+| registration success | `201` |
+| login success | `200` |
+| logout success | `204` |
 | asynchronous upload accepted | `202` |
 | metadata read success | `200` |
 | download capability issued | `200` |
 | deletion success | `204` or idempotent equivalent |
 | invalid input | `422` |
 | unauthenticated | `401` |
-| unauthorized/not-owned resource | `404` preferred where it avoids resource enumeration |
+| unauthorized/not-owned file resource | `404` |
 | per-owner duplicate | `409` |
 | rate limit | `429` |
 | temporary dependency failure | `503` |
@@ -249,14 +289,15 @@ Exact deletion semantics will be frozen in OpenAPI before V1 release.
 
 ## Rate-limit surfaces
 
-Separate rate-limit policies should exist for:
+Implemented:
 
-- authentication attempts;
+- authentication surfaces: 5 attempts per minute by normalized email + IP by default.
+
+Still to be selected and tested independently:
+
 - upload creation;
 - download-capability issuance;
 - general authenticated API reads.
-
-Numbers will be selected during implementation and tested rather than invented in the foundation document.
 
 ## OpenAPI requirement
 

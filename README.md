@@ -2,7 +2,7 @@
 
 Security-focused file upload and delivery API built around **validation, quarantine, asynchronous scanning, auditability and controlled access**.
 
-> **Status:** Application scaffold. Laravel 13, local infrastructure and the first CI quality gate are in place. Identity, file ingestion and scanning are not implemented yet; no production-readiness claim is made.
+> **Status:** Identity + ownership implemented. Laravel 13, local infrastructure, bearer-token authentication and owner-scoped metadata access are in place. Secure file ingestion and scanning are not implemented yet; no production-readiness claim is made.
 
 ## Why this project exists
 
@@ -53,7 +53,31 @@ Queue scan
 
 `Laravel 13` · `PHP 8.3+` · `PostgreSQL` · `Redis` · `S3-compatible private storage` · `Laravel Sanctum` · `Docker Compose` · `OpenAPI`
 
-The scaffold currently wires Laravel, PostgreSQL/Redis configuration and two private S3-compatible storage disks. Sanctum and the malware-scanner adapter arrive with their implementation layers rather than being claimed before use.
+The application now wires Laravel Sanctum bearer tokens, PostgreSQL/Redis configuration, UUID-backed ownership metadata and two private S3-compatible storage disks. The malware-scanner adapter arrives with the scanning layer rather than being claimed before use.
+
+## Identity + ownership
+
+Implemented API security boundary:
+
+```text
+POST /api/v1/auth/register
+POST /api/v1/auth/login
+POST /api/v1/auth/logout
+GET  /api/v1/me
+GET  /api/v1/files
+GET  /api/v1/files/{file}
+```
+
+- User and stored-file public identifiers use UUIDs.
+- Registration normalizes email addresses and requires a 12+ character password with mixed case, numbers and symbols.
+- Login returns a Sanctum bearer token with a default 12-hour lifetime.
+- Authentication attempts are limited to 5 per minute per normalized email + IP pair by default.
+- Logout revokes only the current bearer token.
+- File listings are owner-scoped at the query boundary.
+- Reading another user's file identifier returns `404` to reduce resource-enumeration leakage.
+- Metadata responses never expose owner IDs, quarantine keys or clean-storage keys.
+
+The file rows in this phase establish ownership and authorization semantics only; upload, quarantine and scanning are the next implementation layer.
 
 ## Local development
 
@@ -80,7 +104,7 @@ docker compose run --rm app php artisan test
 - `GET /health/live` returns `200` when Laravel can boot and serve a request.
 - `GET /health/ready` currently returns `503` deliberately. Readiness will turn healthy only after concrete PostgreSQL, Redis and object-storage dependency probes exist.
 
-This keeps the scaffold fail-closed instead of pretending dependencies are ready before they are actually verified.
+This keeps the application fail-closed instead of pretending dependencies are ready before they are actually verified.
 
 ## Initial V1 file policy
 
@@ -109,21 +133,23 @@ State transitions are server-controlled. Clients cannot mark a file clean or ava
 
 - [Architecture](docs/ARCHITECTURE.md) — system boundaries, storage zones, modules, lifecycle and failure rules.
 - [Security Model](docs/SECURITY_MODEL.md) — assets, trust boundaries, threats, controls and required negative tests.
-- [API Map](docs/API_MAP.md) — planned V1 endpoints, errors and HTTP semantics.
+- [API Map](docs/API_MAP.md) — V1 endpoints, implementation status, errors and HTTP semantics.
 - [Engineering Decisions](docs/DECISIONS.md) — accepted choices and intentionally deferred decisions.
 - [Definition of Done](docs/DEFINITION_OF_DONE.md) — the quality/security bar required before V1 is considered portfolio-ready.
 
-## Planned V1 API surface
+## V1 API surface
 
 ```text
+# Implemented
 POST   /api/v1/auth/register
 POST   /api/v1/auth/login
 POST   /api/v1/auth/logout
 GET    /api/v1/me
-
-POST   /api/v1/files
 GET    /api/v1/files
 GET    /api/v1/files/{file}
+
+# Planned next layers
+POST   /api/v1/files
 DELETE /api/v1/files/{file}
 POST   /api/v1/files/{file}/download
 
@@ -135,7 +161,9 @@ A successful upload is planned to return `202 Accepted`; scanning is asynchronou
 
 ## Quality gate
 
-Pull requests and pushes to `main` run the `Application Quality` workflow. The initial gate validates the Composer manifest, installs dependencies, boots the application, enforces Pint formatting, runs the feature test suite and audits resolved Composer dependencies.
+Pull requests and pushes to `main` run the `Application Quality` workflow. The gate validates the Composer manifest, installs dependencies, boots the application, enforces Pint formatting, runs the complete feature/unit test suite and audits resolved Composer dependencies.
+
+Identity coverage includes strong-password validation, generic credential failures, login throttling, bearer-token issuance/revocation, unauthenticated rejection, owner-scoped listing and negative cross-user authorization tests.
 
 GitHub Actions permissions are read-only, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs.
 
@@ -163,9 +191,9 @@ The goal is to make the core security boundary **small enough to understand and 
 ## Roadmap
 
 1. **Foundation** — architecture, threat model, API contract and Definition of Done. **✓**
-2. **Application scaffold** — Laravel structure, local dependencies and quality tooling. **← current**
-3. **Identity + ownership** — token auth and object-level authorization.
-4. **Secure ingestion** — quarantine, file policy, MIME detection, hashing and duplicate handling.
+2. **Application scaffold** — Laravel structure, local dependencies and quality tooling. **✓**
+3. **Identity + ownership** — token auth and object-level authorization. **✓**
+4. **Secure ingestion** — quarantine, file policy, MIME detection, hashing and duplicate handling. **← next**
 5. **Scanning pipeline** — queue worker, scanner adapter and fail-closed state transitions.
 6. **Controlled delivery** — clean storage, signed access and deletion behavior.
 7. **Hardening** — audit events, rate limits, security tests and dependency/CI controls.
