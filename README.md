@@ -1,14 +1,14 @@
 # Secure File Gateway
 
-Security-focused file upload and delivery API built around **validation, quarantine, asynchronous malware scanning, auditability and controlled access**.
+Security-focused file upload and delivery API built around **validation, quarantine, asynchronous malware scanning, controlled delivery, deletion and auditability**.
 
-> **Status:** Scanning pipeline implemented. Authenticated uploads are validated, isolated in private quarantine, queued for ClamAV scanning and advanced through fail-closed lifecycle states. Clean files are promoted into private clean storage. Signed delivery, deletion lifecycle, audit hardening and the final OpenAPI/release evidence are still in progress; no production-readiness claim is made.
+> **Status:** Controlled delivery and deletion are implemented. Authenticated uploads are validated, isolated in private quarantine, queued for ClamAV scanning and advanced through fail-closed lifecycle states. Clean files are promoted into private clean storage and can be accessed only through short-lived application-signed capabilities issued to their owner. Deletion revokes delivery and cleans private objects with retry-safe tombstone semantics. Audit hardening, concrete readiness probes, final OpenAPI evidence and the V1 release are still in progress; no production-readiness claim is made.
 
 ## Why this project exists
 
 File upload looks simple until the input has to be treated as hostile.
 
-This project demonstrates the engineering boundary between **receiving an untrusted object** and **releasing a controlled clean object**. It focuses on ownership, MIME spoofing, storage-path safety, quarantine, malware-scanner failure, lifecycle races, private storage, signed access, safe logging and testable failure semantics.
+This project demonstrates the engineering boundary between **receiving an untrusted object** and **releasing a controlled clean object**. It focuses on ownership, MIME spoofing, storage-path safety, quarantine, malware-scanner failure, lifecycle races, private storage, signed access, revocation, safe logging and testable failure semantics.
 
 It is intentionally **not** a cloud-drive clone.
 
@@ -37,10 +37,18 @@ storage
   ↓
 AVAILABLE
   ↓
-Authorized short-lived access   ← next layer
+Owner-authorized capability issuance
+  ↓
+Short-lived signed application URL
+  ↓
+Signature + expiry + current-state check
+  ↓
+Private clean stream
+
+Any owned lifecycle state → DELETE → DELETED
 ```
 
-The flow is now implemented through `AVAILABLE`, `REJECTED` and `SCAN_FAILED`. Controlled download capability and deletion are the next lifecycle layer.
+The implemented lifecycle now covers ingestion, scanning, controlled access and deletion. Audit/readiness hardening and final release evidence remain.
 
 ## Security invariants
 
@@ -48,11 +56,13 @@ The flow is now implemented through `AVAILABLE`, `REJECTED` and `SCAN_FAILED`. C
 - Quarantine objects are never directly downloadable by users.
 - Client-provided filenames and MIME values do not control storage behavior.
 - Original filenames are display metadata only; object names are server-generated.
-- A file becomes `AVAILABLE` only after validation and a clean scanner result.
+- A file becomes `AVAILABLE` only after validation, a clean scanner result and successful clean-storage promotion.
 - Scanner failure **fails closed**.
 - Unsafe files never enter clean storage.
-- Every file read/delete/download operation is ownership-authorized.
-- Clean storage remains private; future access is short-lived and explicitly authorized.
+- File metadata reads, deletion and download-capability issuance require authentication and ownership authorization.
+- A signed content URL is a short-lived bearer capability after issuance; it is validated by signature and expiry and re-checks current `AVAILABLE` state before bytes are read.
+- Deletion transitions the resource to `DELETED` before object cleanup, so previously issued capabilities stop serving content immediately.
+- Clean and quarantine storage remain private; no object is made permanently public.
 - Duplicate detection is scoped to the same owner so it does not become a cross-user presence oracle.
 - Audit/logging must not contain file bodies, bearer tokens, credentials or signed URLs.
 
@@ -60,7 +70,7 @@ The flow is now implemented through `AVAILABLE`, `REJECTED` and `SCAN_FAILED`. C
 
 `Laravel 13` · `PHP 8.3+` · `PostgreSQL` · `Redis` · `S3-compatible private storage` · `Laravel Sanctum` · `ClamAV` · `Docker Compose` · `OpenAPI`
 
-The application currently wires bearer-token authentication, UUID-backed ownership metadata, private quarantine/clean storage zones, Redis-backed scan jobs and a ClamAV scanner adapter.
+The application currently wires bearer-token authentication, UUID-backed ownership metadata, private quarantine/clean storage zones, Redis-backed scan jobs, a ClamAV scanner adapter and application-signed controlled delivery.
 
 ## Identity + ownership
 
@@ -82,7 +92,7 @@ GET  /api/v1/files/{file}
 - Logout revokes only the current bearer token.
 - File listings are owner-scoped at the query boundary.
 - Reading another user's file identifier returns `404` to reduce resource-enumeration leakage.
-- Metadata responses never expose owner IDs, quarantine keys, clean-storage keys or internal scanner signatures.
+- Metadata responses never expose owner IDs, private storage keys, internal scanner signatures or deleted historical digests.
 
 ## Secure ingestion
 
@@ -124,7 +134,7 @@ Implemented controls:
 - PostgreSQL enforces owner + SHA-256 uniqueness so concurrent duplicate requests cannot bypass the application pre-check.
 - The same bytes may exist for different owners; the API does not reveal cross-user duplicate information.
 - New quarantine objects are removed when MIME verification, duplicate checks or metadata persistence reject the upload.
-- If scan-job dispatch fails, the implementation compensates by removing the new metadata row and quarantine object when possible. If metadata compensation itself fails, the private quarantine object is preserved rather than creating a metadata pointer to deleted bytes.
+- If scan-job dispatch fails, the implementation compensates by removing the new metadata row and quarantine object when possible. If metadata compensation itself fails, the private quarantine object is preserved rather than deleting bytes still referenced by metadata.
 - Upload creation has an independent default limit of 10 requests per minute per authenticated owner + IP.
 
 ## Malware scanning pipeline
@@ -156,6 +166,33 @@ Security/reliability behavior:
 - Scanner engine/signature metadata stays internal and is not returned by normal file APIs.
 
 The CI suite uses deterministic scanner test doubles for lifecycle tests and a unit-tested ClamAV reply parser. Docker Compose provides the real ClamAV service for local integration; a dedicated real-engine integration test is not yet claimed by CI.
+
+## Controlled delivery + deletion
+
+`POST /api/v1/files/{file}/download` issues a short-lived capability only when the authenticated caller owns the file and the file is currently `AVAILABLE` with a clean object.
+
+Default behavior:
+
+- capability lifetime: **300 seconds**;
+- capability issuance limit: **20 requests/minute per owner + IP**;
+- signed-content limit: **60 requests/minute per file + IP**;
+- capability responses and file streams use `private`, `no-store` cache semantics;
+- streamed content uses `X-Content-Type-Options: nosniff` and download disposition;
+- invalid or expired signatures fail with `403`;
+- non-`AVAILABLE` files fail with `FILE_NOT_AVAILABLE`;
+- the content route re-checks lifecycle state before opening private clean storage.
+
+The signed URL is intentionally a temporary bearer capability: anyone possessing a still-valid URL can use it until it expires **unless the file is deleted first**. It must not be logged or treated as a permanent share link.
+
+`DELETE /api/v1/files/{file}` is owner-authorized and idempotent:
+
+1. lock the metadata row;
+2. transition it to `DELETED`;
+3. preserve the prior digest internally as `deleted_sha256` while clearing active `sha256` so the same owner may re-upload identical bytes later;
+4. delete any private quarantine/clean objects;
+5. clear object keys after successful storage cleanup.
+
+If private storage is unavailable, deletion remains fail-closed: the row is already `DELETED`, object keys are retained for retry, and the API returns `503`. Existing signed capabilities no longer serve content because the content route requires current state `AVAILABLE`.
 
 ## Local development
 
@@ -209,10 +246,12 @@ QUARANTINED → SCANNING → AVAILABLE
                   ├────→ REJECTED
                   └────→ SCAN_FAILED
 
-AVAILABLE → DELETED   ← delivery/deletion layer next
+QUARANTINED / SCANNING / AVAILABLE / REJECTED / SCAN_FAILED
+                         ↓
+                      DELETED
 ```
 
-State transitions are server-controlled. Clients cannot mark a file clean or available.
+State transitions are server-controlled. Clients can request deletion but cannot mark a file clean or available.
 
 ## Foundation documents
 
@@ -225,7 +264,7 @@ State transitions are server-controlled. Clients cannot mark a file clean or ava
 ## V1 API surface
 
 ```text
-# Implemented
+# Authenticated API
 POST   /api/v1/auth/register
 POST   /api/v1/auth/login
 POST   /api/v1/auth/logout
@@ -233,22 +272,24 @@ GET    /api/v1/me
 POST   /api/v1/files
 GET    /api/v1/files
 GET    /api/v1/files/{file}
-
-# Planned next layer
-DELETE /api/v1/files/{file}
 POST   /api/v1/files/{file}/download
+DELETE /api/v1/files/{file}
 
+# Temporary signed capability route
+GET    /api/v1/files/{file}/content
+
+# Health
 GET    /health/live
 GET    /health/ready
 ```
 
-Uploads return `202 Accepted`. Clients poll the owned file resource as asynchronous scanning advances its server-controlled state.
+Uploads return `202 Accepted`. Clients poll the owned file resource as asynchronous scanning advances its server-controlled state. The signed content route is not a normal bearer-authenticated API read; possession of a valid temporary signature is the capability.
 
 ## Quality gate
 
 Pull requests and pushes to `main` run the `Application Quality` workflow. The gate validates the Composer manifest, installs dependencies, boots the application, enforces Pint formatting, runs the complete feature/unit test suite and audits resolved Composer dependencies.
 
-Coverage includes identity/ownership controls, ingestion policy, MIME mismatch rejection, quarantine cleanup, SHA-256 duplicate isolation, upload throttling, queue handoff compensation, scan-job dispatch, clean promotion, unsafe rejection, fail-closed scanner errors, terminal-state idempotency and ClamAV reply parsing.
+Coverage includes identity/ownership controls, ingestion policy, MIME mismatch rejection, quarantine cleanup, SHA-256 duplicate isolation, upload throttling, queue handoff compensation, scan-job dispatch, clean promotion, unsafe rejection, fail-closed scanner errors, terminal-state idempotency, ClamAV reply parsing, download ownership, non-available denial, signed-URL tampering/expiry, private streaming, deletion idempotency, capability revocation and duplicate-hash release after deletion.
 
 GitHub Actions permissions are read-only, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs.
 
@@ -280,8 +321,8 @@ The goal is to make the core security boundary **small enough to understand and 
 3. **Identity + ownership** — token auth and object-level authorization. **✓**
 4. **Secure ingestion** — quarantine, file policy, MIME detection, hashing and duplicate handling. **✓**
 5. **Scanning pipeline** — queue worker, scanner adapter and fail-closed state transitions. **✓**
-6. **Controlled delivery** — signed access and deletion behavior. **← next**
-7. **Hardening** — audit events, rate limits, health/readiness probes and dependency/CI controls.
+6. **Controlled delivery** — signed capability, private streaming and deletion behavior. **✓**
+7. **Hardening** — audit events, dependency readiness, reconciliation and broader security/CI controls. **← next**
 8. **V1 evidence** — OpenAPI, reproducible demo, final documentation and tagged release.
 
 ## Repository principle
