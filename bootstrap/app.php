@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\FileLifecycleException;
 use App\Exceptions\IngestionException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
@@ -7,6 +8,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Exceptions\InvalidSignatureException;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -35,6 +37,32 @@ return Application::configure(basePath: dirname(__DIR__))
                     'message' => $exception->getMessage(),
                 ],
             ], $exception->status);
+        });
+
+        $exceptions->render(function (FileLifecycleException $exception, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'error' => [
+                    'code' => $exception->apiCode,
+                    'message' => $exception->getMessage(),
+                ],
+            ], $exception->status);
+        });
+
+        $exceptions->render(function (InvalidSignatureException $exception, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+
+            return response()->json([
+                'error' => [
+                    'code' => 'INVALID_DOWNLOAD_SIGNATURE',
+                    'message' => 'The download link is invalid or expired.',
+                ],
+            ], Response::HTTP_FORBIDDEN);
         });
 
         $exceptions->render(function (AuthenticationException $exception, Request $request) {

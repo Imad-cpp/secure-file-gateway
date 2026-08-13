@@ -5,7 +5,8 @@
 - Base path: `/api/v1`.
 - JSON for metadata and errors.
 - Multipart upload for V1 file ingestion.
-- Bearer-token authentication.
+- Bearer-token authentication for normal user API operations.
+- Temporary signed application URLs for controlled file-content delivery.
 - Opaque public identifiers.
 - Server-owned lifecycle states.
 - Error responses use stable machine-readable codes.
@@ -24,16 +25,18 @@ Implemented:
 - `POST /api/v1/files` with quarantine + scan-job handoff;
 - asynchronous scan-driven transitions through `SCANNING`, `AVAILABLE`, `REJECTED` and `SCAN_FAILED`;
 - `GET /api/v1/files`;
-- `GET /api/v1/files/{file}`.
+- `GET /api/v1/files/{file}`;
+- `POST /api/v1/files/{file}/download`;
+- temporary signed `GET /api/v1/files/{file}/content`;
+- `DELETE /api/v1/files/{file}` with `DELETED` tombstone semantics.
 
 Still planned for later layers:
 
-- `DELETE /api/v1/files/{file}`;
-- `POST /api/v1/files/{file}/download`;
-- audit/readiness hardening;
-- final OpenAPI contract.
+- audit-event hardening;
+- concrete dependency readiness probes;
+- final OpenAPI contract and release evidence.
 
-No implemented endpoint exposes quarantine object keys, clean object keys, raw scanner output, internal malware signatures or cross-user duplicate information.
+No implemented normal-user endpoint exposes quarantine object keys, clean object keys, raw scanner output, internal malware signatures, deleted historical digests or cross-user duplicate information.
 
 ## Authentication
 
@@ -128,18 +131,20 @@ Success response shape:
     "size_bytes": 120034,
     "sha256": "...",
     "state": "QUARANTINED",
-    "created_at": "..."
+    "created_at": "...",
+    "deleted_at": null
   }
 }
 ```
 
-The response deliberately omits owner IDs, storage keys and internal scanner metadata.
+The response deliberately omits owner IDs, storage keys and internal scanner/deletion metadata.
 
 Duplicate semantics:
 
 - duplicate detection is SHA-256 based and scoped to the authenticated owner;
 - owner + SHA-256 uniqueness is enforced in the database to protect against concurrent races;
-- identical bytes for different owners are allowed and do not produce a cross-user presence signal.
+- identical bytes for different owners are allowed and do not produce a cross-user presence signal;
+- deletion clears active `sha256`, allowing the same owner to upload identical bytes again later while preserving the historical digest internally as `deleted_sha256`.
 
 ### `GET /api/v1/files`
 
@@ -153,16 +158,14 @@ Current behavior:
 
 - ownership is scoped in the database query;
 - pagination defaults to 20 items;
-- state reflects asynchronous scan progress;
+- state reflects asynchronous scan/deletion progress;
 - no global file search exists.
-
-State filtering remains planned for lifecycle refinement.
 
 ### `GET /api/v1/files/{file}`
 
 **Status:** Implemented.
 
-Returns metadata for one owned file and is the polling surface for asynchronous scan state.
+Returns metadata for one owned file and is the polling surface for asynchronous state.
 
 **Auth required + ownership policy.**
 
@@ -176,32 +179,89 @@ The response does not expose:
 - scanner engine;
 - malware signature;
 - raw scanner output;
+- deleted historical SHA-256;
 - storage credentials.
-
-### `DELETE /api/v1/files/{file}`
-
-**Status:** Planned for controlled-delivery/lifecycle work.
-
-Deletes/revokes an owned file resource according to lifecycle policy.
-
-**Auth required + ownership policy.**
-
-Deletion behavior must be idempotent from the API consumer's perspective where practical. Implementation must define cleanup behavior for quarantine/clean objects and audit the deletion outcome.
 
 ### `POST /api/v1/files/{file}/download`
 
-**Status:** Planned for controlled-delivery layer.
+**Status:** Implemented.
 
-Requests controlled access to an owned clean file.
+Issues controlled short-lived access to an owned clean file.
 
-**Auth required + ownership policy + `state = AVAILABLE`.**
+**Auth required + ownership policy + `state = AVAILABLE` + download-capability rate limit.**
 
-Planned behavior:
+Implemented behavior:
 
-- server authorizes access;
-- server creates a short-lived signed URL or equivalent controlled capability;
-- response does not cache as a permanent public location;
-- audit event records successful/denied request without storing the signed URL.
+1. authorize ownership;
+2. require `AVAILABLE` and a clean object key;
+3. create an application-signed URL for the file-content route;
+4. expire the capability after 300 seconds by default;
+5. return the URL and `expires_at` using `private, no-store` response semantics.
+
+Default issuance rate limit: **20 requests per minute per authenticated owner + IP**.
+
+Success response:
+
+```json
+{
+  "data": {
+    "url": "http://localhost:8000/api/v1/files/uuid/content?expires=...&signature=...",
+    "expires_at": "..."
+  }
+}
+```
+
+The returned URL is a temporary bearer capability. It must not be logged, persisted as a public share URL or assumed to require the original bearer token when used.
+
+### `GET /api/v1/files/{file}/content`
+
+**Status:** Implemented temporary signed capability route.
+
+This is not a normal bearer-authenticated metadata endpoint. Possession of a currently valid signed URL is the capability.
+
+Implemented checks/behavior:
+
+1. `signed` middleware verifies signature and expiry before content handling;
+2. per-file + IP content throttling is applied;
+3. the current database row is loaded;
+4. current state must still be `AVAILABLE` and a clean object key must exist;
+5. bytes are opened from private clean storage and streamed as a download.
+
+Response controls include:
+
+- attachment `Content-Disposition` with a sanitized display filename;
+- detected MIME `Content-Type` where available;
+- `X-Content-Type-Options: nosniff`;
+- `private, no-store, max-age=0` cache semantics;
+- `Content-Length` when known.
+
+Default content limit: **60 requests per minute per file + IP**.
+
+A file deleted after capability issuance no longer streams because the content route re-checks current state and requires `AVAILABLE`.
+
+### `DELETE /api/v1/files/{file}`
+
+**Status:** Implemented.
+
+Deletes/revokes an owned file resource using retry-safe tombstone semantics.
+
+**Auth required + ownership policy.**
+
+Implemented behavior:
+
+1. lock the file row inside a transaction;
+2. transition to `DELETED` if not already deleted;
+3. preserve the previous SHA-256 internally as `deleted_sha256` and clear active `sha256`;
+4. set `deleted_at`;
+5. delete any referenced quarantine and clean objects;
+6. clear private object keys after successful storage cleanup;
+7. return `204 No Content`.
+
+Repeated DELETE requests are idempotent from the API consumer's perspective.
+
+If storage cleanup fails, the API returns `503 DEPENDENCY_UNAVAILABLE`; the row remains `DELETED` and unresolved object keys remain for retry. Because delivery requires current state `AVAILABLE`, deletion revokes already-issued capabilities before cleanup finishes.
+
+Foreign-owned deletion attempts return `404` and do not alter metadata or storage.
 
 ## Scan status
 
@@ -248,9 +308,9 @@ Externally readable V1 states:
 - `AVAILABLE` — clean result and private clean-storage promotion completed;
 - `REJECTED` — malware/unsafe result;
 - `SCAN_FAILED` — final scan/worker failure;
-- `DELETED` — planned controlled-lifecycle work.
+- `DELETED` — deletion requested and all delivery is revoked; storage cleanup may be complete or retry-pending.
 
-Clients cannot submit a desired state.
+Clients cannot submit arbitrary desired states. DELETE is the explicit lifecycle action that can move an owned file to `DELETED`.
 
 ## Error contract
 
@@ -265,7 +325,7 @@ Stable error envelope:
 }
 ```
 
-Implemented error codes relevant to the current HTTP API:
+Implemented error codes relevant to the HTTP API:
 
 - `UNAUTHENTICATED`;
 - `VALIDATION_FAILED`;
@@ -274,17 +334,13 @@ Implemented error codes relevant to the current HTTP API:
 - `FILE_TYPE_NOT_ALLOWED`;
 - `FILE_TYPE_MISMATCH`;
 - `DUPLICATE_FILE`;
-- `DEPENDENCY_UNAVAILABLE` for storage, metadata or queue-handoff failures.
-
-Reserved/next-layer HTTP errors:
-
-- `FORBIDDEN` where disclosure is acceptable;
 - `FILE_NOT_AVAILABLE`;
-- explicit delivery/deletion errors as OpenAPI is frozen.
+- `INVALID_DOWNLOAD_SIGNATURE`;
+- `DEPENDENCY_UNAVAILABLE` for storage, metadata, queue-handoff or deletion-cleanup failures.
 
 `SCAN_FAILED` is primarily a resource state rather than an immediate upload HTTP error because scanning is asynchronous.
 
-User-facing messages must not expose object keys, filesystem paths, stack traces, scanner signatures or whether another user's matching hash exists.
+User-facing messages must not expose object keys, filesystem paths, stack traces, scanner signatures, signed URLs beyond the successful capability response or whether another user's matching hash exists.
 
 ## HTTP semantics
 
@@ -295,37 +351,40 @@ User-facing messages must not expose object keys, filesystem paths, stack traces
 | logout success | `204` |
 | asynchronous upload accepted | `202` |
 | metadata / scan-state read success | `200` |
+| download capability issued | `200` |
+| signed file content streamed | `200` |
+| deletion success / idempotent retry | `204` |
 | invalid input / file policy rejection | `422` |
-| unauthenticated | `401` |
+| unauthenticated normal API request | `401` |
 | unauthorized/not-owned file resource | `404` |
+| file not currently available for delivery | `409` |
 | per-owner duplicate | `409` |
+| invalid or expired signed capability | `403` |
 | rate limit | `429` |
-| temporary dependency / queue handoff failure | `503` |
-| download capability issued | `200` planned |
-| deletion success | `204` or idempotent equivalent planned |
+| temporary dependency / cleanup / queue handoff failure | `503` |
 
 ## Rate-limit surfaces
 
 Implemented independently:
 
 - authentication surfaces: 5 attempts per minute by normalized email + IP by default;
-- upload creation: 10 attempts per minute by authenticated owner + IP by default.
+- upload creation: 10 attempts per minute by authenticated owner + IP by default;
+- download-capability issuance: 20 attempts per minute by authenticated owner + IP by default;
+- signed content: 60 attempts per minute by file ID + IP by default.
 
-Still to be selected and tested independently:
-
-- download-capability issuance;
-- general authenticated API reads.
+General authenticated API read throttling remains a hardening decision.
 
 ## OpenAPI requirement
 
 Before V1 release, `openapi.yaml` must define:
 
-- every public endpoint;
+- every public endpoint and the temporary signed-content capability route;
 - authentication scheme;
 - request/response schemas;
 - error envelope;
 - lifecycle enum;
 - upload content type and size documentation;
+- signed-capability semantics and expiry;
 - example responses;
 - authorization expectations where representable.
 
