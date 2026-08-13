@@ -48,7 +48,7 @@ class ClamAvHealthProbe
 
                 $metadata = stream_get_meta_data($socket);
 
-                if (($metadata['timed_out'] ?? false) === true) {
+                if ($metadata['timed_out'] === true) {
                     return false;
                 }
             }
