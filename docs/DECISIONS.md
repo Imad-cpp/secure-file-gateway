@@ -372,6 +372,18 @@ The clean fixture must reach `AVAILABLE`, stream byte-identical content through 
 
 **Evidence boundary:** EICAR demonstrates configured-engine integration and fail-closed lifecycle behavior. It does not prove malware-detection completeness, arbitrary-file safety, production operations or incident-response maturity.
 
+## D-043 — The public V1 demo is executable and CI-checked
+
+**Status:** Accepted for V1
+
+**Decision:** `scripts/demo-v1.sh` is the canonical executable normal-user demo and `docs/V1_DEMO.md` is its human-facing runbook. The script uses a unique synthetic `example.test` account and synthetic clean text, exercises only public HTTP interfaces, verifies byte-identical signed delivery, deletes the owned file, and does not print its bearer token or signed URL.
+
+The permanent real-container integration job runs the same script after migrations, aggregate readiness and scan-worker startup succeed.
+
+**Why:** a portfolio demo should be reproducible evidence rather than a command sequence that can silently drift from the application. Running the documented flow in CI keeps the normal user journey reviewable and continuously checked.
+
+**Evidence boundary:** a passing demo proves reproducibility of this synthetic normal flow in the configured integration environment. It does not prove production availability, performance, operational maturity or broader security properties.
+
 ## Deferred decisions
 
 The following are intentionally not frozen yet:

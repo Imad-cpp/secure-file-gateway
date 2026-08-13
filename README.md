@@ -2,7 +2,7 @@
 
 Security-focused file upload and delivery API built around **validation, quarantine, asynchronous malware scanning, controlled delivery, deletion and auditability**.
 
-> **Status:** The V1 contract and core release-evidence gates are machine checked, including a real ClamAV application-path scenario in CI. A clean upload must pass through the Redis worker and ClamAV, reach `AVAILABLE`, stream byte-identical content through a temporary signed URL and delete successfully; a runtime-generated EICAR antivirus test fixture must reach `REJECTED` and remain non-downloadable. Reproducible demo artifacts, final release notes/license review, the exact-commit Definition-of-Done audit and the tagged V1 release remain; no production-readiness or malware-detection-completeness claim is made.
+> **Status:** The V1 contract and core release-evidence gates are machine checked, including real ClamAV application-path evidence and a CI-executed reproducible public demo. The demo registers a synthetic user, authenticates, uploads a clean text fixture, waits for `AVAILABLE`, downloads byte-identical content through a short-lived signed URL and deletes the file. Final release notes/license review, the exact-commit Definition-of-Done audit and the tagged V1 release remain; no production-readiness, availability-guarantee or malware-detection-completeness claim is made.
 
 ## Why this project exists
 
@@ -263,6 +263,14 @@ docker compose run --rm app vendor/bin/pint --test
 docker compose run --rm app php artisan test
 ```
 
+Reproducible public V1 demo:
+
+```bash
+bash scripts/demo-v1.sh
+```
+
+The demo uses synthetic content and does not print its bearer token or signed URL. See [Reproducible V1 Demo](docs/V1_DEMO.md) for the full startup, readiness and cleanup sequence.
+
 ## Initial V1 file policy
 
 | Type | Allowed extension | Server-detected MIME | Maximum size |
@@ -297,6 +305,7 @@ State transitions are server-controlled. Clients can request deletion but cannot
 - [Definition of Done](docs/DEFINITION_OF_DONE.md) — the quality/security bar required before V1 is considered portfolio-ready.
 - [Security Policy](SECURITY.md) — private vulnerability-reporting route, supported-version boundary and responsible-testing guidance.
 - [OpenAPI Contract](openapi.yaml) — machine-checked OpenAPI 3.0.3 description of the public V1 HTTP surface.
+- [Reproducible V1 Demo](docs/V1_DEMO.md) — executable synthetic clean-file user journey verified by the permanent integration gate.
 - [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.
 
 ## V1 API surface
@@ -325,11 +334,11 @@ Uploads return `202 Accepted`. Clients poll the owned file resource as asynchron
 
 ## Quality gate
 
-Pull requests and pushes to `main` run three independent `Application Quality` jobs. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations and requires `/health/ready` to become `ready` before teardown.
+Pull requests and pushes to `main` run three independent `Application Quality` jobs. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations, requires `/health/ready` to become `ready`, starts the real scan worker, executes the clean + EICAR ClamAV lifecycle check, then executes the reproducible synthetic public V1 demo before teardown.
 
 Coverage includes identity/ownership controls, ingestion policy, MIME mismatch rejection, quarantine cleanup, SHA-256 duplicate isolation, upload throttling, queue handoff compensation, scan-job dispatch, clean promotion, unsafe rejection, fail-closed scanner errors, terminal-state idempotency, ClamAV reply parsing, download ownership, non-available denial, signed-URL tampering/expiry, private streaming, deletion idempotency, capability revocation, duplicate-hash release after deletion, request-ID spoofing resistance, error-response correlation, audit metadata sanitization, failed-login audit hygiene, readiness response semantics and deleted-object reconciliation safety.
 
-GitHub Actions permissions are read-only for the permanent quality workflow, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs. The real-container job now proves both dependency readiness and a real ClamAV application lifecycle for clean and EICAR test content. It does **not** prove detection completeness, arbitrary-file safety or production operational maturity. See `docs/V1_EVIDENCE.md` for the evidence boundary.
+GitHub Actions permissions are read-only for the permanent quality workflow, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs. The real-container job proves dependency readiness, a real ClamAV application lifecycle for clean and EICAR test content, and the documented normal public flow from synthetic registration through byte-verified signed delivery and deletion. It does **not** prove detection completeness, arbitrary-file safety, production availability or production operational maturity. See `docs/V1_EVIDENCE.md` for the evidence boundary.
 
 ## What V1 will prove
 
@@ -362,7 +371,7 @@ The goal is to make the core security boundary **small enough to understand and 
 6. **Controlled delivery** — signed capability, private streaming and deletion behavior. **✓**
 7. **Security hardening** — request correlation, audit events, dependency readiness, targeted reconciliation and vulnerability reporting. **✓**
 8. **V1 contract + evidence hardening** — OpenAPI route drift, locked dependencies, static analysis, secret hygiene and real dependency readiness. **✓**
-9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible demo, release notes/license decision, final DoD audit and tagged V1 remain. **← current**
+9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; release notes/license decision, final DoD audit and tagged V1 remain. **← current**
 
 ## Repository principle
 

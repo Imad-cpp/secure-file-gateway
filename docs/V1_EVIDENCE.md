@@ -47,7 +47,8 @@ The job:
 6. starts the real Redis-backed `scans` worker;
 7. uploads clean text through the HTTP API, waits for real ClamAV processing, requires `AVAILABLE`, downloads through the issued signed capability, verifies byte equality and deletes the file;
 8. assembles the EICAR antivirus test string at runtime from fragments, uploads it through the same API path, requires real ClamAV to transition it to `REJECTED`, and requires download-capability issuance to return `409 FILE_NOT_AVAILABLE`;
-9. tears down the disposable environment and volumes.
+9. executes `scripts/demo-v1.sh`, which registers a unique synthetic user through the public API, logs in without printing its token, uploads clean text, waits for `AVAILABLE`, issues a signed capability without printing it, verifies downloaded bytes and deletes the file;
+10. tears down the disposable environment and volumes.
 
 This proves that dependency wiring, readiness, queue coordination, private storage, the ClamAV `INSTREAM` adapter, lifecycle transitions and controlled delivery operate together against real local containers in CI rather than only mocks.
 
@@ -78,6 +79,12 @@ The feature/unit suite covers, among other boundaries:
 
 EICAR is a harmless anti-malware test fixture. A passing EICAR check demonstrates integration with the configured scanning engine; it does not prove detection completeness or that arbitrary files are safe.
 
+## Reproducible public demo evidence
+
+`infrastructure-integration` also executes the same `scripts/demo-v1.sh` documented in `docs/V1_DEMO.md`. It uses a unique synthetic `example.test` identity and synthetic text fixture, then exercises only public application interfaces: registration → login → upload → lifecycle polling → signed-capability issuance → byte-identical download → owner deletion.
+
+The script deliberately does not print the bearer token or signed URL. A passing `V1_DEMO=PASS` marker proves that the documented normal V1 journey is executable against the configured real-container integration environment. It does not establish production availability, performance, operational maturity or security beyond the boundaries separately tested and documented.
+
 ## Explicitly not proven yet
 
 The repository does **not** claim the following as machine-verified release evidence:
@@ -94,9 +101,8 @@ These boundaries remain explicit so the portfolio does not inflate local/contain
 
 Before tagging public `v1.0.0`, the remaining evidence should include:
 
-1. a reproducible documented demo flow from registration through upload/state polling and controlled delivery;
-2. final changelog/release notes and a license decision;
-3. a complete Definition-of-Done review against the exact release commit;
-4. green post-merge CI on the release candidate.
+1. final changelog/release notes and a license decision;
+2. a complete Definition-of-Done review against the exact release commit;
+3. green post-merge CI on the release candidate.
 
-The deterministic real-ClamAV clean + EICAR application-path check is now satisfied by the permanent `Application Quality` workflow.
+The deterministic real-ClamAV clean + EICAR application-path check and the reproducible synthetic public demo are now satisfied by the permanent `Application Quality` workflow.
