@@ -31,6 +31,9 @@ class User extends Authenticatable
         ];
     }
 
+    /**
+     * @return HasMany<StoredFile, $this>
+     */
     public function storedFiles(): HasMany
     {
         return $this->hasMany(StoredFile::class, 'owner_id');
