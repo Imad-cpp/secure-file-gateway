@@ -384,6 +384,16 @@ The permanent real-container integration job runs the same script after migratio
 
 **Evidence boundary:** a passing demo proves reproducibility of this synthetic normal flow in the configured integration environment. It does not prove production availability, performance, operational maturity or broader security properties.
 
+## D-044 — V1 source is licensed under MIT
+
+**Status:** Accepted for V1
+
+**Decision:** publish the repository source under the MIT License, with the canonical license text in `LICENSE`.
+
+**Why:** V1 is a public portfolio and learning-oriented engineering reference. MIT keeps reuse terms short and explicit while preserving copyright and warranty disclaimers, without adding release-process complexity unrelated to the gateway's security boundary.
+
+**Boundary:** the license applies to the repository source and documentation as stated by the license text. It does not create a production warranty, security guarantee or support commitment.
+
 ## Deferred decisions
 
 The following are intentionally not frozen yet:
@@ -392,7 +402,6 @@ The following are intentionally not frozen yet:
 - retention duration for deleted tombstones and failed-scan quarantine;
 - generic bucket-wide orphan reconciliation policy;
 - production hosting provider;
-- project license;
 - admin/auditor role in the public demo;
 - whether a transactional outbox or immutable external audit sink is required beyond V1 best-effort semantics.
 

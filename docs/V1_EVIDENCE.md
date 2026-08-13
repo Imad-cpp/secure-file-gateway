@@ -99,10 +99,11 @@ These boundaries remain explicit so the portfolio does not inflate local/contain
 
 ## Release-candidate gate
 
+The release-artifact gate is now prepared in-repository: `LICENSE` contains the MIT License, `CHANGELOG.md` records the V1 release-candidate scope, and `docs/releases/v1.0.0.md` is the source for the future GitHub release notes. None of those files implies that the tag already exists.
+
 Before tagging public `v1.0.0`, the remaining evidence should include:
 
-1. final changelog/release notes and a license decision;
-2. a complete Definition-of-Done review against the exact release commit;
-3. green post-merge CI on the release candidate.
+1. a complete Definition-of-Done review against the exact release commit;
+2. green post-merge CI on the release candidate.
 
-The deterministic real-ClamAV clean + EICAR application-path check and the reproducible synthetic public demo are now satisfied by the permanent `Application Quality` workflow.
+The deterministic real-ClamAV clean + EICAR application-path check, reproducible synthetic public demo and release-artifact preparation are now satisfied.
