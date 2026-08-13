@@ -398,7 +398,7 @@ The permanent real-container integration job runs the same script after migratio
 
 **Status:** Accepted for V1
 
-**Decision:** the permanent `Application Quality` workflow includes a `release-audit` job that depends on successful `php-quality`, `secret-hygiene` and `infrastructure-integration` jobs. It then runs `scripts/check-v1-release-audit.sh` against the same repository snapshot. The `v1.0.0` tag may target only a `main` commit whose complete workflow, including `release-audit`, succeeds.
+**Decision:** the permanent `Application Quality` workflow includes a `release-audit` job that depends on successful `php-quality`, `secret-hygiene` and `infrastructure-integration` jobs. It then runs `scripts/check-v1-release-audit.sh` against the same repository snapshot. The `v1.0.0` tag may target only a `main` commit whose complete workflow, including `release-audit`, succeeds. Once created, the `v1.0.0` tag is immutable and must not be moved or recreated against another commit.
 
 **Why:** a manually written Definition-of-Done verdict can drift away from the exact code being tagged. Making the audit a dependent CI gate ties the release claim to one immutable commit and the evidence produced for it.
 

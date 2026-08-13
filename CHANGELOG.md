@@ -2,13 +2,13 @@
 
 All notable changes to Secure File Gateway are documented in this file.
 
-The project follows semantic versioning once tagged releases begin. Until `v1.0.0` is created, the release-candidate work remains under **Unreleased**.
+The project follows Semantic Versioning beginning with `v1.0.0`.
 
 ## [Unreleased]
 
-### V1 release candidate
+No changes yet.
 
-The current release candidate establishes the first complete public portfolio boundary for the gateway. The tag is intentionally not created until the exact release commit passes the final Definition-of-Done audit and post-merge quality gate.
+## [1.0.0] - 2026-08-13
 
 ### Added
 

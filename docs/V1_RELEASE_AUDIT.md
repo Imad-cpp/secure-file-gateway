@@ -2,7 +2,7 @@
 
 **V1 release audit: PASS**
 
-This document records the Definition-of-Done review for the first public portfolio release candidate of Secure File Gateway.
+This document records the Definition-of-Done review for the first public portfolio release of Secure File Gateway.
 
 The verdict above is **not self-proving**. It is valid only for a commit whose permanent `Application Quality` workflow completes all prerequisite jobs and the dependent `release-audit` job successfully. The `v1.0.0` tag must target that exact verified `main` commit.
 
@@ -31,7 +31,7 @@ The audit evaluates the repository against `docs/DEFINITION_OF_DONE.md` and the 
 | Real infrastructure | PASS | CI boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, runs migrations and requires aggregate readiness. |
 | Real scanner lifecycle | PASS | CI exercises both a clean file and a runtime-generated EICAR antivirus fixture through HTTP upload, Redis worker, ClamAV `INSTREAM`, lifecycle transitions and controlled delivery denial/success as appropriate. |
 | Reproducible public demo | PASS | `scripts/demo-v1.sh` is documented and executed by CI against the same real-container stack. |
-| Release artifacts | PASS | MIT `LICENSE`, `CHANGELOG.md`, prepared `docs/releases/v1.0.0.md`, security policy, evidence ledger and project documentation are present. |
+| Release artifacts | PASS | MIT `LICENSE`, dated `CHANGELOG.md` entry, canonical `docs/releases/v1.0.0.md`, security policy, evidence ledger and project documentation are present. |
 
 ## Definition-of-Done evidence layers
 
@@ -95,4 +95,4 @@ The repository demonstrates a deliberately bounded security engineering system a
 3. `infrastructure-integration`;
 4. dependent `release-audit`.
 
-Until that post-merge result exists, `CHANGELOG.md` remains under `Unreleased` and `docs/releases/v1.0.0.md` remains prepared release-note source material.
+The tagged commit must contain the dated `1.0.0` changelog entry and canonical V1 release notes. Once created, the `v1.0.0` tag is immutable and must not be moved or recreated against another commit.
