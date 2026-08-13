@@ -97,10 +97,10 @@ The repository does **not** claim the following as machine-verified release evid
 
 These boundaries remain explicit so the portfolio does not inflate local/container evidence into production claims.
 
-## Release-candidate gate
+## V1 release integrity
 
-The release-artifact gate is now prepared in-repository: `LICENSE` contains the MIT License, `CHANGELOG.md` records the V1 release-candidate scope, and `docs/releases/v1.0.0.md` is the source for the future GitHub release notes. None of those files implies that the tag already exists.
+The release artifacts are versioned in-repository: `LICENSE` contains the MIT License, `CHANGELOG.md` contains the dated `1.0.0` entry, and `docs/releases/v1.0.0.md` is the canonical source for the GitHub release notes.
 
 The final Definition-of-Done review is recorded in `docs/V1_RELEASE_AUDIT.md` and enforced by the permanent dependent `release-audit` job. That job can run only after `php-quality`, `secret-hygiene` and `infrastructure-integration` succeed on the same commit, then verifies the required V1 artifacts and evidence boundaries and emits `V1_RELEASE_AUDIT=PASS`.
 
-Before tagging public `v1.0.0`, the remaining release evidence is one green post-merge `Application Quality` run on the exact `main` commit selected for the tag, including successful `release-audit`. The deterministic real-ClamAV clean + EICAR application-path check, reproducible synthetic public demo, release-artifact preparation and machine-checked DoD gate are now implemented.
+The `v1.0.0` tag and GitHub release may target only the exact `main` commit whose post-merge `Application Quality` workflow, including `release-audit`, succeeds. Once published, the tag is immutable and must not be moved to a different commit. The deterministic real-ClamAV clean + EICAR application-path check, reproducible synthetic public demo, release artifacts and machine-checked DoD gate remain the bounded V1 evidence.

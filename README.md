@@ -2,7 +2,7 @@
 
 Security-focused file upload and delivery API built around **validation, quarantine, asynchronous malware scanning, controlled delivery, deletion and auditability**.
 
-> **Status:** The V1 contract, security evidence, release artifacts and Definition-of-Done are now encoded in permanent machine-checked gates, including a dependent `release-audit` job that runs only after PHP quality, secret hygiene and real infrastructure integration succeed on the same commit. The `v1.0.0` tag/release remains unpublished until that gate is green on the exact `main` commit selected for release; no production-readiness, availability-guarantee or malware-detection-completeness claim is made.
+> **Status:** `v1.0.0` is the first public portfolio release boundary for Secure File Gateway. Its contract, security evidence, release artifacts and Definition of Done are enforced by permanent machine-checked gates. Release publication is allowed only from an exact `main` commit whose `Application Quality` workflow, including the dependent `release-audit` job, succeeds; no production-readiness, availability-guarantee or malware-detection-completeness claim is made.
 
 ## Why this project exists
 
@@ -308,8 +308,8 @@ State transitions are server-controlled. Clients can request deletion but cannot
 - [Reproducible V1 Demo](docs/V1_DEMO.md) — executable synthetic clean-file user journey verified by the permanent integration gate.
 - [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.
 - [V1 Release Audit](docs/V1_RELEASE_AUDIT.md) — Definition-of-Done verdict, exact-commit release gate and tagging rule.
-- [Changelog](CHANGELOG.md) — release-candidate change record; `v1.0.0` remains unreleased until the final gate passes.
-- [Prepared V1 Release Notes](docs/releases/v1.0.0.md) — source material for the future GitHub `v1.0.0` release.
+- [Changelog](CHANGELOG.md) — versioned release history and current unreleased changes.
+- [V1 Release Notes](docs/releases/v1.0.0.md) — canonical in-repository notes for `v1.0.0`.
 - [MIT License](LICENSE) — terms for use, modification and redistribution of the project source.
 
 ## V1 API surface
@@ -344,9 +344,9 @@ Coverage includes identity/ownership controls, ingestion policy, MIME mismatch r
 
 GitHub Actions permissions are read-only for the permanent quality workflow, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs. The real-container job proves dependency readiness, a real ClamAV application lifecycle for clean and EICAR test content, and the documented normal public flow from synthetic registration through byte-verified signed delivery and deletion. It does **not** prove detection completeness, arbitrary-file safety, production availability or production operational maturity. See `docs/V1_EVIDENCE.md` for the evidence boundary.
 
-## What V1 will prove
+## What V1 proves
 
-When complete, this repository should provide public evidence of:
+This repository provides public evidence of:
 
 - API and backend architecture;
 - authorization and object-level security;
@@ -375,7 +375,9 @@ The goal is to make the core security boundary **small enough to understand and 
 6. **Controlled delivery** — signed capability, private streaming and deletion behavior. **✓**
 7. **Security hardening** — request correlation, audit events, dependency readiness, targeted reconciliation and vulnerability reporting. **✓**
 8. **V1 contract + evidence hardening** — OpenAPI route drift, locked dependencies, static analysis, secret hygiene and real dependency readiness. **✓**
-9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; MIT license + changelog + prepared release notes **✓**; exact-commit DoD release gate **✓ automated**; tagged V1 remains. **← current**
+9. **V1 release evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; MIT license + changelog + V1 release notes **✓**; exact-commit DoD release gate **✓**.
+
+Release publication follows D-045: the immutable tag and GitHub release must target an exact verified `main` commit.
 
 ## Repository principle
 

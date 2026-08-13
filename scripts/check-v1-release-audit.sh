@@ -30,8 +30,10 @@ for file in "${required_files[@]}"; do
 done
 
 grep -Fq 'MIT License' LICENSE || fail 'license-not-mit'
-grep -Fq '## [Unreleased]' CHANGELOG.md || fail 'changelog-not-unreleased'
-grep -Fq 'The `v1.0.0` tag and GitHub release do not exist yet.' docs/releases/v1.0.0.md || fail 'release-notes-tag-boundary-missing'
+grep -Fq '## [Unreleased]' CHANGELOG.md || fail 'changelog-unreleased-section-missing'
+grep -Fq '## [1.0.0] - 2026-08-13' CHANGELOG.md || fail 'v1-changelog-entry-missing'
+grep -Fq '# Secure File Gateway v1.0.0 — Release Notes' docs/releases/v1.0.0.md || fail 'v1-release-notes-missing'
+grep -Fq 'Once created, the tag must never be moved' docs/releases/v1.0.0.md || fail 'tag-immutability-boundary-missing'
 grep -Fq 'V1 release audit: PASS' docs/V1_RELEASE_AUDIT.md || fail 'audit-verdict-missing'
 grep -Fq 'Production readiness is not claimed.' docs/V1_RELEASE_AUDIT.md || fail 'production-boundary-missing'
 grep -Fq 'malware-detection completeness' docs/V1_RELEASE_AUDIT.md || fail 'scanner-boundary-missing'
@@ -42,7 +44,8 @@ for temporary_workflow in \
   .github/workflows/sync-v1-release-artifacts.yml \
   .github/workflows/generate-composer-lock.yml \
   .github/workflows/sync-v1-docs.yml \
-  .github/workflows/sync-v1-final-audit.yml; do
+  .github/workflows/sync-v1-final-audit.yml \
+  .github/workflows/finalize-v1-release-metadata.yml; do
   [[ ! -e "$temporary_workflow" ]] || fail "temporary-workflow-present:$temporary_workflow"
 done
 
