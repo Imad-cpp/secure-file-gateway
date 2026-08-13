@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use RuntimeException;
 use Tests\TestCase;
 
 class ControlledDeliveryTest extends TestCase
@@ -123,6 +124,18 @@ class ControlledDeliveryTest extends TestCase
             ->assertJsonPath('error.code', 'INVALID_DOWNLOAD_SIGNATURE');
     }
 
+    public function test_delete_requires_authentication(): void
+    {
+        $owner = $this->makeUser('owner');
+        $file = $this->makeFile($owner, 'AVAILABLE', 'clean/private');
+
+        $this->deleteJson('/api/v1/files/'.$file->id)
+            ->assertUnauthorized()
+            ->assertJsonPath('error.code', 'UNAUTHENTICATED');
+
+        $this->assertSame('AVAILABLE', $file->fresh()->state);
+    }
+
     public function test_owner_delete_is_idempotent_and_removes_clean_storage(): void
     {
         Storage::fake('clean');
@@ -169,6 +182,34 @@ class ControlledDeliveryTest extends TestCase
         $this->assertSame('DELETED', $file->state);
         $this->assertNull($file->quarantine_object_key);
         Storage::disk('quarantine')->assertMissing('quarantine/delete-me');
+    }
+
+    public function test_storage_cleanup_failure_keeps_deleted_tombstone_and_object_key_for_retry(): void
+    {
+        $owner = $this->makeUser('owner');
+        $file = $this->makeFile($owner, 'AVAILABLE', 'clean/pending-delete');
+        $originalSha256 = $file->sha256;
+
+        Storage::shouldReceive('disk')
+            ->once()
+            ->with('clean')
+            ->andThrow(new RuntimeException('storage offline'));
+
+        $this->deleteJson(
+            '/api/v1/files/'.$file->id,
+            [],
+            $this->authHeaders($owner),
+        )
+            ->assertServiceUnavailable()
+            ->assertJsonPath('error.code', 'DEPENDENCY_UNAVAILABLE');
+
+        $file->refresh();
+
+        $this->assertSame('DELETED', $file->state);
+        $this->assertNull($file->sha256);
+        $this->assertSame($originalSha256, $file->deleted_sha256);
+        $this->assertSame('clean/pending-delete', $file->clean_object_key);
+        $this->assertNotNull($file->deleted_at);
     }
 
     public function test_foreign_owner_cannot_delete_file_or_storage_object(): void
