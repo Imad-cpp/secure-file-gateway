@@ -261,6 +261,8 @@ The current local adapter uses `clamd` TCP solely inside the Compose network.
 
 The application contract remains replaceable; the domain does not depend directly on ClamAV protocol types.
 
+The permanent integration gate now exercises this boundary through the application rather than calling a scanner CLI directly: a clean upload must traverse quarantine → Redis worker → ClamAV `INSTREAM` → clean storage → `AVAILABLE` → signed byte-identical delivery → deletion, while a runtime-generated EICAR antivirus test fixture must traverse the same ingestion/worker path to `REJECTED` and remain non-downloadable. This validates integration behavior without asserting detection completeness.
+
 ## Delivery flow
 
 ### Capability issuance

@@ -178,9 +178,7 @@ Required test layers:
 
 At least one CI/local integration path must exercise the real database, Redis queue coordination and S3-compatible storage boundary.
 
-**Current integration status:** CI boots PostgreSQL, Redis, MinIO, ClamAV and the non-root Laravel application, applies the real PostgreSQL migrations and requires `/health/ready` to verify every dependency. This satisfies the real dependency/readiness boundary.
-
-The malware lifecycle suite may use deterministic test adapters in ordinary tests, but a full real-engine file-processing check is still required before the project claims end-to-end operational malware-scanning evidence.
+**Current integration status:** CI boots PostgreSQL, Redis, MinIO, ClamAV and the non-root Laravel application, applies the real PostgreSQL migrations, requires `/health/ready` to verify every dependency, starts the Redis-backed scan worker, and executes the real application lifecycle for both clean content and a runtime-generated EICAR antivirus test fixture. The clean path must reach `AVAILABLE`, stream byte-identical signed content and delete successfully; the EICAR path must reach `REJECTED` and remain non-downloadable. This satisfies the V1 real-engine integration evidence requirement without claiming production operations or detection completeness.
 
 ## CI completion
 
@@ -197,7 +195,7 @@ Pull-request CI must fail on relevant quality problems and include, as the imple
 
 CI configuration itself is reviewable code and follows least privilege.
 
-The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure/readiness job. The remaining release evidence is the full real-engine file-processing scenario plus final demo/release artifacts—not the core quality gates listed above.
+The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes the clean + EICAR ClamAV application-path scenario. The remaining release work is the reproducible demo/release artifacts, final license/release-note decisions, exact-commit DoD review and tagged release—not the core quality or real-engine gates listed above.
 
 ## Local developer experience
 

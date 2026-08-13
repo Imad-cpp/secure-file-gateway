@@ -2,7 +2,7 @@
 
 Security-focused file upload and delivery API built around **validation, quarantine, asynchronous malware scanning, controlled delivery, deletion and auditability**.
 
-> **Status:** The V1 contract and core release-evidence gates are now machine checked. In addition to the implemented security lifecycle, the repository has an OpenAPI 3.0.3 contract with route-drift validation, a committed Composer lockfile, Larastan static analysis without a baseline, full-history secret scanning and a real-container readiness gate covering PostgreSQL, Redis, MinIO, ClamAV and Laravel. A full real-engine upload → verdict → delivery scenario, final release notes/license review and the tagged V1 release remain; no production-readiness claim is made.
+> **Status:** The V1 contract and core release-evidence gates are machine checked, including a real ClamAV application-path scenario in CI. A clean upload must pass through the Redis worker and ClamAV, reach `AVAILABLE`, stream byte-identical content through a temporary signed URL and delete successfully; a runtime-generated EICAR antivirus test fixture must reach `REJECTED` and remain non-downloadable. Reproducible demo artifacts, final release notes/license review, the exact-commit Definition-of-Done audit and the tagged V1 release remain; no production-readiness or malware-detection-completeness claim is made.
 
 ## Why this project exists
 
@@ -168,7 +168,7 @@ Security/reliability behavior:
 - Terminal states are not scanned again.
 - Scanner engine/signature metadata stays internal and is not returned by normal file APIs.
 
-The CI suite uses deterministic scanner test doubles for lifecycle tests and a unit-tested ClamAV reply parser. Docker Compose provides the real ClamAV service for local integration; a dedicated real-engine integration test is not yet claimed by CI.
+The ordinary test suite still uses deterministic scanner test doubles for focused lifecycle cases and a unit-tested ClamAV reply parser. In addition, CI now exercises the real application path with the Dockerized Redis worker, MinIO storage and ClamAV `INSTREAM`: a clean text upload must become `AVAILABLE`, stream byte-identical content through a signed capability and delete successfully, while a runtime-generated EICAR antivirus test fixture must become `REJECTED` and fail download-capability issuance. EICAR is test evidence for integration behavior, not proof that ClamAV detects all malicious content.
 
 ## Controlled delivery + deletion
 
@@ -329,7 +329,7 @@ Pull requests and pushes to `main` run three independent `Application Quality` j
 
 Coverage includes identity/ownership controls, ingestion policy, MIME mismatch rejection, quarantine cleanup, SHA-256 duplicate isolation, upload throttling, queue handoff compensation, scan-job dispatch, clean promotion, unsafe rejection, fail-closed scanner errors, terminal-state idempotency, ClamAV reply parsing, download ownership, non-available denial, signed-URL tampering/expiry, private streaming, deletion idempotency, capability revocation, duplicate-hash release after deletion, request-ID spoofing resistance, error-response correlation, audit metadata sanitization, failed-login audit hygiene, readiness response semantics and deleted-object reconciliation safety.
 
-GitHub Actions permissions are read-only for the permanent quality workflow, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs. The real-container readiness job proves dependency wiring and readiness behavior; it does **not** yet claim a complete real-ClamAV upload/verdict/delivery path. See `docs/V1_EVIDENCE.md` for the evidence boundary.
+GitHub Actions permissions are read-only for the permanent quality workflow, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs. The real-container job now proves both dependency readiness and a real ClamAV application lifecycle for clean and EICAR test content. It does **not** prove detection completeness, arbitrary-file safety or production operational maturity. See `docs/V1_EVIDENCE.md` for the evidence boundary.
 
 ## What V1 will prove
 
@@ -362,7 +362,7 @@ The goal is to make the core security boundary **small enough to understand and 
 6. **Controlled delivery** — signed capability, private streaming and deletion behavior. **✓**
 7. **Security hardening** — request correlation, audit events, dependency readiness, targeted reconciliation and vulnerability reporting. **✓**
 8. **V1 contract + evidence hardening** — OpenAPI route drift, locked dependencies, static analysis, secret hygiene and real dependency readiness. **✓**
-9. **Release-candidate evidence** — real-engine end-to-end check, reproducible demo, release notes/license decision and tagged V1. **← next**
+9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible demo, release notes/license decision, final DoD audit and tagged V1 remain. **← current**
 
 ## Repository principle
 

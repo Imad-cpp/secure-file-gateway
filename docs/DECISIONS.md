@@ -360,6 +360,18 @@ Successful keys are cleared only after storage deletion succeeds. Non-deleted ro
 
 **Evidence boundary:** this proves dependency wiring and concrete readiness checks against real containers. Until a deterministic harmless test-signature flow is added, it does not claim real-engine upload → verdict → controlled-delivery E2E coverage.
 
+## D-042 — Real scanner release evidence uses the application path and runtime EICAR
+
+**Status:** Accepted for V1
+
+**Decision:** the permanent integration gate proves ClamAV participation by sending both clean synthetic content and the harmless EICAR antivirus test fixture through the normal authenticated HTTP upload, quarantine, Redis worker and `INSTREAM` adapter path. The exact EICAR test string is assembled at runtime from fragments instead of being stored contiguously in Git history.
+
+The clean fixture must reach `AVAILABLE`, stream byte-identical content through a temporary signed capability and delete successfully. The EICAR fixture must reach `REJECTED`, and download-capability issuance must fail with `FILE_NOT_AVAILABLE`.
+
+**Why:** invoking `clamscan` directly would prove the scanner image can detect a fixture but would bypass the application security boundary this repository is intended to demonstrate. Runtime construction keeps the repository source focused on the test logic rather than storing the complete detection signature.
+
+**Evidence boundary:** EICAR demonstrates configured-engine integration and fail-closed lifecycle behavior. It does not prove malware-detection completeness, arbitrary-file safety, production operations or incident-response maturity.
+
 ## Deferred decisions
 
 The following are intentionally not frozen yet:
