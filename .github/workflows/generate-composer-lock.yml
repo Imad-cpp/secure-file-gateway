@@ -36,10 +36,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test -f composer.lock
-          content="$(base64 -w 0 composer.lock)"
+          base64 -w 0 composer.lock > /tmp/composer-lock.b64
+          jq -n \
+            --arg message 'chore: lock PHP dependencies' \
+            --arg branch "$GITHUB_REF_NAME" \
+            --rawfile content /tmp/composer-lock.b64 \
+            '{message: $message, branch: $branch, content: $content}' \
+            > /tmp/composer-lock-payload.json
           gh api \
             --method PUT \
             "repos/${GITHUB_REPOSITORY}/contents/composer.lock" \
-            -f message='chore: lock PHP dependencies' \
-            -f content="$content" \
-            -f branch="$GITHUB_REF_NAME"
+            --input /tmp/composer-lock-payload.json
