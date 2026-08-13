@@ -4,16 +4,29 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Requests\Api\V1\StoreFileRequest;
 use App\Services\FileIngestionService;
+use App\Services\SecurityAuditRecorder;
 use Illuminate\Http\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 class FileIngestionController
 {
-    public function __invoke(StoreFileRequest $request, FileIngestionService $ingestion): JsonResponse
-    {
+    public function __invoke(
+        StoreFileRequest $request,
+        FileIngestionService $ingestion,
+        SecurityAuditRecorder $audit,
+    ): JsonResponse {
         $storedFile = $ingestion->ingest(
             $request->user(),
             $request->file('file'),
+        );
+
+        $audit->record(
+            $request->user(),
+            'file.upload.accepted',
+            'success',
+            'stored_file',
+            $storedFile->id,
+            ['state' => $storedFile->state],
         );
 
         return response()->json([

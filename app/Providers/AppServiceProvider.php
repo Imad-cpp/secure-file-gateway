@@ -3,9 +3,11 @@
 namespace App\Providers;
 
 use App\Contracts\MalwareScanner;
+use App\Contracts\ReadinessChecker;
 use App\Models\StoredFile;
 use App\Policies\StoredFilePolicy;
 use App\Scanning\ClamAvMalwareScanner;
+use App\Services\InfrastructureReadinessChecker;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -18,6 +20,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(MalwareScanner::class, ClamAvMalwareScanner::class);
+        $this->app->bind(ReadinessChecker::class, InfrastructureReadinessChecker::class);
     }
 
     public function boot(): void
