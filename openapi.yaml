@@ -1,0 +1,686 @@
+openapi: 3.0.3
+info:
+  title: Secure File Gateway API
+  version: 1.0.0-rc
+  description: >-
+    Security-focused API for authenticated file ingestion, quarantine, asynchronous
+    malware scanning, controlled short-lived delivery and deletion.
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+tags:
+  - name: Auth
+  - name: Files
+  - name: Health
+
+paths:
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerUser
+      summary: Register a demo user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: loginUser
+      summary: Exchange credentials for a bearer token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Bearer token issued
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutUser
+      summary: Revoke the current bearer token
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Current token revoked
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/v1/me:
+    get:
+      tags: [Auth]
+      operationId: getCurrentUser
+      summary: Get minimal current-user metadata
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/v1/files:
+    post:
+      tags: [Files]
+      operationId: uploadFile
+      summary: Accept an untrusted file into private quarantine
+      description: >-
+        Successful ingestion returns 202 while malware scanning continues
+        asynchronously. The client polls file metadata for lifecycle progress.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF, PNG, JPEG or plain text; maximum 10 MiB.
+      responses:
+        '202':
+          description: File accepted into quarantine and queued for scanning
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredFileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '409':
+          description: Per-owner duplicate
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+    get:
+      tags: [Files]
+      operationId: listFiles
+      summary: List files owned by the authenticated user
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Owner-scoped paginated file metadata
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredFileListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/v1/files/{file}:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    get:
+      tags: [Files]
+      operationId: getFile
+      summary: Read metadata for one owned file
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Owned file metadata
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoredFileResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Files]
+      operationId: deleteFile
+      summary: Revoke and clean an owned file
+      description: >-
+        Commits the DELETED tombstone before private-object cleanup. Repeated
+        requests are idempotent. A cleanup dependency failure returns 503 while
+        the tombstone remains in force.
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: File is deleted/revoked and referenced cleanup completed
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+
+  /api/v1/files/{file}/download:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    post:
+      tags: [Files]
+      operationId: issueDownloadCapability
+      summary: Issue short-lived signed access to an available owned file
+      description: >-
+        The returned URL is a temporary bearer capability after owner-authorized
+        issuance. The default lifetime is 300 seconds.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Temporary signed capability issued
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              schema:
+                type: string
+              description: private, no-store, max-age=0 semantics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadCapabilityResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: File is not currently available
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/files/{file}/content:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+      - name: expires
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+        description: Unix expiry timestamp covered by the application signature.
+      - name: signature
+        in: query
+        required: true
+        schema:
+          type: string
+        description: Laravel signed-route signature.
+    get:
+      tags: [Files]
+      operationId: downloadFileContent
+      summary: Stream private clean content through a temporary signed capability
+      description: >-
+        This route does not require the original Sanctum token. Signature,
+        expiry, rate limit and current AVAILABLE state are checked before bytes
+        are opened from private clean storage.
+      security:
+        - SignedCapability: []
+      responses:
+        '200':
+          description: Private clean file stream
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+            Content-Disposition:
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum: [nosniff]
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            text/plain:
+              schema:
+                type: string
+        '403':
+          description: Invalid or expired signed capability
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: File no longer AVAILABLE
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: liveness
+      summary: Process liveness
+      responses:
+        '200':
+          description: Laravel can boot and serve a request
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivenessResponse'
+
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: readiness
+      summary: Dependency readiness without sensitive topology disclosure
+      responses:
+        '200':
+          description: All required dependencies are ready
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+        '503':
+          description: One or more dependencies are unavailable
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotReadyResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum personal access token
+    SignedCapability:
+      type: apiKey
+      in: query
+      name: signature
+      description: Temporary Laravel signed-route capability paired with expires.
+
+  headers:
+    RequestId:
+      description: Server-generated UUID used for request correlation.
+      schema:
+        type: string
+        format: uuid
+
+  parameters:
+    FileId:
+      name: file
+      in: path
+      required: true
+      description: Opaque stored-file UUID.
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthenticated:
+      description: Authentication required or credentials invalid
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationFailed:
+      description: Request validation or file-policy rejection
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found or not visible to the caller
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    DependencyUnavailable:
+      description: Required storage, queue, metadata or delivery dependency unavailable
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [name, email, password, password_confirmation]
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          format: password
+          minLength: 12
+          writeOnly: true
+        password_confirmation:
+          type: string
+          format: password
+          minLength: 12
+          writeOnly: true
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          format: password
+          writeOnly: true
+        device_name:
+          type: string
+          maxLength: 100
+          nullable: true
+
+    User:
+      type: object
+      required: [id, name, email, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+
+    UserResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/User'
+
+    TokenResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [token, token_type, expires_at]
+          properties:
+            token:
+              type: string
+              writeOnly: true
+              description: Returned once. Treat as a secret.
+            token_type:
+              type: string
+              enum: [Bearer]
+            expires_at:
+              type: string
+              format: date-time
+
+    StoredFile:
+      type: object
+      required:
+        - id
+        - original_name
+        - detected_mime_type
+        - size_bytes
+        - state
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        original_name:
+          type: string
+        detected_mime_type:
+          type: string
+          enum: [application/pdf, image/png, image/jpeg, text/plain]
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 10485760
+        sha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          nullable: true
+          description: Active per-owner digest; null after deletion.
+        state:
+          $ref: '#/components/schemas/FileState'
+        created_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    FileState:
+      type: string
+      enum: [QUARANTINED, SCANNING, AVAILABLE, REJECTED, SCAN_FAILED, DELETED]
+
+    StoredFileResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/StoredFile'
+
+    StoredFileListResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StoredFile'
+        meta:
+          type: object
+          required: [current_page, per_page, total, last_page]
+          properties:
+            current_page:
+              type: integer
+              minimum: 1
+            per_page:
+              type: integer
+              minimum: 1
+            total:
+              type: integer
+              minimum: 0
+            last_page:
+              type: integer
+              minimum: 1
+
+    DownloadCapabilityResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [url, expires_at]
+          properties:
+            url:
+              type: string
+              format: uri
+              description: Sensitive short-lived bearer capability; do not log.
+            expires_at:
+              type: string
+              format: date-time
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: FILE_NOT_AVAILABLE
+            message:
+              type: string
+            fields:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+
+    LivenessResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    ReadyResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready]
+
+    NotReadyResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [not_ready]
