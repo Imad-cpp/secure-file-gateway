@@ -272,7 +272,53 @@ If storage cleanup fails, the API returns `DEPENDENCY_UNAVAILABLE`; the row rema
 
 **Security consequence:** signed delivery requires current `AVAILABLE`, so already-issued capabilities stop serving content as soon as the tombstone commits, even if physical object cleanup is still pending.
 
-**Known boundary:** PostgreSQL and object storage do not share a transaction. Automated reconciliation for abandoned cleanup remains hardening work.
+**Known boundary:** PostgreSQL and object storage do not share a transaction.
+
+## D-033 — Request correlation IDs are server-generated
+
+**Status:** Accepted for V1
+
+**Decision:** every HTTP request receives a fresh server-generated UUID. The value is returned as `X-Request-ID` on successful and rendered error responses and may be referenced by internal audit events.
+
+Caller-provided `X-Request-ID` values are ignored rather than trusted.
+
+**Why:** correlation is useful for debugging/security evidence only if an attacker cannot choose arbitrary identifiers or inject unbounded text into logs/audit data.
+
+## D-034 — Audit persistence is sanitized and best-effort
+
+**Status:** Accepted for V1
+
+**Decision:** internal `audit_events` records actor/action/target/outcome/request correlation plus bounded metadata. Metadata keys resembling Authorization, tokens, passwords, secrets, credentials, signatures, URLs, private object keys, bodies, payloads or contents are recursively dropped before persistence.
+
+Current audited application actions are registration, login success/failure, logout, accepted upload, download-capability issued/denied and delete success/partial failure.
+
+**Failure behavior:** audit persistence does not retroactively fail a domain operation that already completed. A failed audit insert emits only a bounded warning containing action/outcome/request ID.
+
+**Known boundary:** this is not a transactional forensic ledger. A transactional outbox or immutable external audit sink may be justified later but is not claimed by V1.
+
+## D-035 — Readiness is concrete, fail-closed and aggregate-only
+
+**Status:** Accepted for V1
+
+**Decision:** `/health/ready` checks PostgreSQL (`select 1`), Redis (`PING`), both private storage zones through non-mutating existence requests, and ClamAV through internal `PING` / `PONG`.
+
+Any failed check returns `503`.
+
+The public response contains only aggregate `ready` or `not_ready`; it does not identify the failed dependency or expose credentials, bucket names, raw exceptions or topology.
+
+**Why:** orchestration needs an honest readiness signal without turning health endpoints into reconnaissance surfaces.
+
+## D-036 — Cleanup reconciliation is limited to referenced DELETED objects
+
+**Status:** Accepted for V1
+
+**Decision:** `files:reconcile-deleted` retries object deletion only for rows already in terminal `DELETED` state that still contain database-referenced quarantine/clean object keys.
+
+Successful keys are cleared only after storage deletion succeeds. Non-deleted rows are not touched.
+
+**Why:** a narrow database-driven retry path repairs known partial deletion failures without granting a V1 maintenance command broad authority to enumerate/delete arbitrary bucket objects.
+
+**Known boundary:** generic bucket-wide orphan discovery is not implemented.
 
 ## Deferred decisions
 
@@ -280,10 +326,10 @@ The following are intentionally not frozen yet:
 
 - general authenticated API-read rate limits beyond the implemented auth/upload/delivery surfaces;
 - retention duration for deleted tombstones and failed-scan quarantine;
-- automated orphan/deletion reconciliation policy;
+- generic bucket-wide orphan reconciliation policy;
 - production hosting provider;
 - project license;
 - admin/auditor role in the public demo;
-- whether a transactional outbox is required beyond V1 compensation semantics.
+- whether a transactional outbox or immutable external audit sink is required beyond V1 best-effort semantics.
 
 These will be decided when implementation evidence or a concrete requirement exists, rather than guessed in advance.

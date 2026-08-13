@@ -10,6 +10,7 @@
 - Opaque public identifiers.
 - Server-owned lifecycle states.
 - Error responses use stable machine-readable codes.
+- Every HTTP response receives a server-generated `X-Request-ID`.
 - No endpoint returns quarantine or clean object keys.
 
 This document defines the V1 contract alongside implementation. Exact response envelopes may be refined when the OpenAPI specification is written, but security semantics should not drift silently.
@@ -28,15 +29,31 @@ Implemented:
 - `GET /api/v1/files/{file}`;
 - `POST /api/v1/files/{file}/download`;
 - temporary signed `GET /api/v1/files/{file}/content`;
-- `DELETE /api/v1/files/{file}` with `DELETED` tombstone semantics.
+- `DELETE /api/v1/files/{file}` with `DELETED` tombstone semantics;
+- server-generated request correlation IDs;
+- internal sanitized audit-event persistence;
+- concrete fail-closed dependency readiness checks;
+- targeted retry of storage cleanup for `DELETED` tombstones.
 
-Still planned for later layers:
+Still planned for the release-evidence layer:
 
-- audit-event hardening;
-- concrete dependency readiness probes;
-- final OpenAPI contract and release evidence.
+- final OpenAPI contract and drift validation;
+- remaining CI/release hardening and reproducible integration evidence;
+- tagged V1 release.
 
-No implemented normal-user endpoint exposes quarantine object keys, clean object keys, raw scanner output, internal malware signatures, deleted historical digests or cross-user duplicate information.
+No implemented normal-user endpoint exposes quarantine object keys, clean object keys, raw scanner output, internal malware signatures, deleted historical digests, internal audit rows or cross-user duplicate information.
+
+## Request correlation
+
+A fresh server-generated UUID is attached to every HTTP request and returned as:
+
+```text
+X-Request-ID: <uuid>
+```
+
+The application does not trust/reuse a caller-provided `X-Request-ID`. Rendered exception responses receive the same server-generated ID as successful responses.
+
+Where a security audit event originates from an HTTP request, the internal event stores the same request ID for correlation.
 
 ## Authentication
 
@@ -56,7 +73,8 @@ Implemented security notes:
 - email is normalized to lowercase and uniqueness is enforced;
 - password requires at least 12 characters with mixed case, numbers and symbols;
 - password is hashed by the model and never returned by the API;
-- authentication surfaces use the named auth rate limiter.
+- authentication surfaces use the named auth rate limiter;
+- successful registration records an internal sanitized audit event.
 
 ### `POST /api/v1/auth/login`
 
@@ -67,13 +85,16 @@ Implemented behavior:
 - invalid credentials return the same `UNAUTHENTICATED` response regardless of whether the email exists;
 - the default authentication throttle is 5 attempts per minute keyed by normalized email + IP;
 - the token is returned exactly once;
-- tokens expire after 720 minutes (12 hours) by default.
+- tokens expire after 720 minutes (12 hours) by default;
+- login success/failure creates an internal audit event without storing the submitted email/password in audit metadata.
 
 ### `POST /api/v1/auth/logout`
 
 Revokes the current token and returns `204 No Content`.
 
 **Auth required.**
+
+A successful logout records an internal audit event after current-token revocation.
 
 ### `GET /api/v1/me`
 
@@ -105,7 +126,8 @@ Implemented request/processing order:
 10. per-owner duplicate check;
 11. file-record persistence with owner + SHA-256 database uniqueness;
 12. scan-job dispatch to the `scans` queue;
-13. return `202 Accepted` with state `QUARANTINED`.
+13. internal audit of accepted upload with safe state metadata;
+14. return `202 Accepted` with state `QUARANTINED`.
 
 If queue dispatch fails after metadata persistence, the normal compensation path removes the new metadata row and quarantine object. If metadata compensation cannot complete, quarantine is preserved rather than deleting bytes that an existing row may still reference.
 
@@ -196,7 +218,8 @@ Implemented behavior:
 2. require `AVAILABLE` and a clean object key;
 3. create an application-signed URL for the file-content route;
 4. expire the capability after 300 seconds by default;
-5. return the URL and `expires_at` using `private, no-store` response semantics.
+5. record an internal issued/denied audit event without persisting the signed URL;
+6. return the URL and `expires_at` using `private, no-store` response semantics.
 
 Default issuance rate limit: **20 requests per minute per authenticated owner + IP**.
 
@@ -255,7 +278,8 @@ Implemented behavior:
 4. set `deleted_at`;
 5. delete any referenced quarantine and clean objects;
 6. clear private object keys after successful storage cleanup;
-7. return `204 No Content`.
+7. record success or partial-cleanup failure as a sanitized audit event;
+8. return `204 No Content` on complete cleanup.
 
 Repeated DELETE requests are idempotent from the API consumer's perspective.
 
@@ -279,25 +303,78 @@ Implemented scan behavior:
 
 Normal API consumers see only the lifecycle state. Scanner signatures and engine details are internal metadata.
 
-## Audit endpoint
+## Audit events
 
-### `GET /api/v1/audit-events`
+There is **no normal-user audit endpoint** in V1.
 
-Not part of the normal-user V1 API by default.
+Internal `audit_events` records include only bounded/sanitized security metadata:
 
-If an administrative role is introduced for the portfolio demo, this endpoint may expose sanitized security events through explicit authorization. It must never become a shortcut around file ownership boundaries.
+- actor ID when known;
+- action;
+- target type/ID when applicable;
+- outcome;
+- request ID when the event came from HTTP;
+- sanitized metadata.
+
+The recorder recursively drops metadata keys resembling Authorization headers, tokens, passwords, secrets, credentials, signatures, URLs, object keys, request bodies/payloads or file contents. String values are bounded.
+
+Current audited application actions:
+
+- registration success;
+- login success/failure;
+- logout success;
+- accepted upload;
+- download-capability issued/denied;
+- deletion success/partial failure.
+
+Audit persistence is best-effort and is not transactional with every domain/storage side effect. A failed audit insert produces only a bounded safe warning and does not change the HTTP semantics of an operation that already completed.
+
+A future admin/auditor endpoint, if introduced, requires a separate authorization decision and must not become a shortcut around file ownership boundaries.
 
 ## Health endpoints
 
 ### `GET /health/live`
 
-Process liveness only. Must not expose environment details.
+Process liveness only. Returns `200` when Laravel can boot and serve the request.
 
 ### `GET /health/ready`
 
-Dependency readiness suitable for local/container orchestration.
+Concrete fail-closed dependency readiness.
 
-Current behavior remains fail-closed (`503`) until concrete PostgreSQL, Redis, object-storage and scanner probes are implemented. Future response details must not disclose credentials, bucket names, internal stack traces or sensitive topology.
+The checker verifies:
+
+- PostgreSQL with `select 1`;
+- Redis with `PING`;
+- quarantine and clean object-storage zones through non-mutating existence checks;
+- ClamAV through internal `PING` / `PONG`.
+
+If all checks pass:
+
+```json
+{"status":"ready"}
+```
+
+If any check fails:
+
+```json
+{"status":"not_ready"}
+```
+
+with HTTP `503`.
+
+The public response deliberately omits which dependency failed, credentials, bucket names, raw exceptions and sensitive topology.
+
+## Operational reconciliation
+
+Targeted deleted-object reconciliation is available as a console operation rather than an HTTP endpoint:
+
+```bash
+php artisan files:reconcile-deleted --limit=100
+```
+
+The command considers only rows in `DELETED` that still contain referenced quarantine/clean object keys. It retries deletion, clears keys only after successful removal and never touches non-deleted rows.
+
+This is **not** a generic object-storage orphan sweep. Bucket-wide reconciliation and transactional-outbox semantics remain outside current V1 claims.
 
 ## Lifecycle states
 
@@ -342,6 +419,8 @@ Implemented error codes relevant to the HTTP API:
 
 User-facing messages must not expose object keys, filesystem paths, stack traces, scanner signatures, signed URLs beyond the successful capability response or whether another user's matching hash exists.
 
+All normal/error HTTP responses include a server-generated `X-Request-ID` suitable for safe correlation.
+
 ## HTTP semantics
 
 | Situation | Status |
@@ -362,6 +441,7 @@ User-facing messages must not expose object keys, filesystem paths, stack traces
 | invalid or expired signed capability | `403` |
 | rate limit | `429` |
 | temporary dependency / cleanup / queue handoff failure | `503` |
+| readiness dependency failure | `503` |
 
 ## Rate-limit surfaces
 
@@ -372,7 +452,7 @@ Implemented independently:
 - download-capability issuance: 20 attempts per minute by authenticated owner + IP by default;
 - signed content: 60 attempts per minute by file ID + IP by default.
 
-General authenticated API read throttling remains a hardening decision.
+General authenticated API read throttling remains a release-hardening decision.
 
 ## OpenAPI requirement
 
@@ -385,6 +465,8 @@ Before V1 release, `openapi.yaml` must define:
 - lifecycle enum;
 - upload content type and size documentation;
 - signed-capability semantics and expiry;
+- request-correlation response header;
+- health response semantics;
 - example responses;
 - authorization expectations where representable.
 
