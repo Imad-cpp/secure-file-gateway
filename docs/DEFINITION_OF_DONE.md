@@ -195,7 +195,7 @@ Pull-request CI must fail on relevant quality problems and include, as the imple
 
 CI configuration itself is reviewable code and follows least privilege.
 
-The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. The remaining release work is final license/release-note decisions, the exact-commit DoD review and tagged release—not the core quality, real-engine or demo gates listed above.
+The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. The MIT license, changelog and prepared `v1.0.0` release notes are now present. The remaining release work is the exact-commit DoD review and tagged release—not the core quality, real-engine, demo or release-artifact gates listed above.
 
 ## Local developer experience
 
@@ -227,7 +227,9 @@ The repository must keep these current:
 - `docs/V1_DEMO.md`;
 - `SECURITY.md`;
 - OpenAPI specification before public V1;
-- changelog/release notes once versioned releases begin.
+- `CHANGELOG.md`;
+- `docs/releases/v1.0.0.md` before the first V1 tag;
+- `LICENSE`.
 
 Material changes to accepted security assumptions update documentation in the same PR.
 
