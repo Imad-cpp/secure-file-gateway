@@ -1,0 +1,90 @@
+name: Sync V1 Release Artifacts
+
+on:
+  push:
+    branches:
+      - docs/v1-release-artifacts
+    paths:
+      - .github/workflows/sync-v1-release-artifacts.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: true
+
+      - name: Guard and synchronize release artifacts
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one guarded match, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "README.md",
+              "> **Status:** The V1 contract and core release-evidence gates are machine checked, including real ClamAV application-path evidence and a CI-executed reproducible public demo. The demo registers a synthetic user, authenticates, uploads a clean text fixture, waits for `AVAILABLE`, downloads byte-identical content through a short-lived signed URL and deletes the file. Final release notes/license review, the exact-commit Definition-of-Done audit and the tagged V1 release remain; no production-readiness, availability-guarantee or malware-detection-completeness claim is made.",
+              "> **Status:** The V1 contract and core release-evidence gates are machine checked, including real ClamAV application-path evidence and a CI-executed reproducible public demo. The MIT license, changelog and prepared `v1.0.0` release notes are now in-repository. The exact-commit Definition-of-Done audit and tagged V1 release remain; no production-readiness, availability-guarantee or malware-detection-completeness claim is made."
+          )
+
+          replace_once(
+              "README.md",
+              "- [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.",
+              "- [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.\n- [Changelog](CHANGELOG.md) — release-candidate change record; `v1.0.0` remains unreleased until the final gate passes.\n- [Prepared V1 Release Notes](docs/releases/v1.0.0.md) — source material for the future GitHub `v1.0.0` release.\n- [MIT License](LICENSE) — terms for use, modification and redistribution of the project source."
+          )
+
+          replace_once(
+              "README.md",
+              "9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; release notes/license decision, final DoD audit and tagged V1 remain. **← current**",
+              "9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; MIT license + changelog + prepared release notes **✓**; final exact-commit DoD audit and tagged V1 remain. **← current**"
+          )
+
+          replace_once(
+              "docs/DECISIONS.md",
+              "## Deferred decisions\n\nThe following are intentionally not frozen yet:",
+              "## D-044 — V1 source is licensed under MIT\n\n**Status:** Accepted for V1\n\n**Decision:** publish the repository source under the MIT License, with the canonical license text in `LICENSE`.\n\n**Why:** V1 is a public portfolio and learning-oriented engineering reference. MIT keeps reuse terms short and explicit while preserving copyright and warranty disclaimers, without adding release-process complexity unrelated to the gateway's security boundary.\n\n**Boundary:** the license applies to the repository source and documentation as stated by the license text. It does not create a production warranty, security guarantee or support commitment.\n\n## Deferred decisions\n\nThe following are intentionally not frozen yet:"
+          )
+
+          replace_once(
+              "docs/DECISIONS.md",
+              "- project license;\n",
+              ""
+          )
+
+          replace_once(
+              "docs/DEFINITION_OF_DONE.md",
+              "The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. The remaining release work is final license/release-note decisions, the exact-commit DoD review and tagged release—not the core quality, real-engine or demo gates listed above.",
+              "The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. The MIT license, changelog and prepared `v1.0.0` release notes are now present. The remaining release work is the exact-commit DoD review and tagged release—not the core quality, real-engine, demo or release-artifact gates listed above."
+          )
+
+          replace_once(
+              "docs/DEFINITION_OF_DONE.md",
+              "- changelog/release notes once versioned releases begin.",
+              "- `CHANGELOG.md`;\n- `docs/releases/v1.0.0.md` before the first V1 tag;\n- `LICENSE`."
+          )
+
+          replace_once(
+              "docs/V1_EVIDENCE.md",
+              "Before tagging public `v1.0.0`, the remaining evidence should include:\n\n1. final changelog/release notes and a license decision;\n2. a complete Definition-of-Done review against the exact release commit;\n3. green post-merge CI on the release candidate.\n\nThe deterministic real-ClamAV clean + EICAR application-path check and the reproducible synthetic public demo are now satisfied by the permanent `Application Quality` workflow.",
+              "The release-artifact gate is now prepared in-repository: `LICENSE` contains the MIT License, `CHANGELOG.md` records the V1 release-candidate scope, and `docs/releases/v1.0.0.md` is the source for the future GitHub release notes. None of those files implies that the tag already exists.\n\nBefore tagging public `v1.0.0`, the remaining evidence should include:\n\n1. a complete Definition-of-Done review against the exact release commit;\n2. green post-merge CI on the release candidate.\n\nThe deterministic real-ClamAV clean + EICAR application-path check, reproducible synthetic public demo and release-artifact preparation are now satisfied."
+          )
+
+      - name: Commit synchronized sources
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md docs/DECISIONS.md docs/DEFINITION_OF_DONE.md docs/V1_EVIDENCE.md
+          git diff --cached --check
+          git commit -m "docs: record V1 release artifact decisions"
+          git push
