@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Exceptions\FileLifecycleException;
+use App\Files\FileLifecyclePolicy;
 use App\Models\StoredFile;
 use App\Services\SecurityAuditRecorder;
 use Illuminate\Http\JsonResponse;
@@ -20,7 +21,7 @@ class FileDownloadCapabilityController
     ): JsonResponse {
         Gate::authorize('download', $file);
 
-        if ($file->state !== 'AVAILABLE' || ! is_string($file->clean_object_key) || $file->clean_object_key === '') {
+        if (! FileLifecyclePolicy::canIssueDownload($file->state) || ! is_string($file->clean_object_key) || $file->clean_object_key === '') {
             $audit->record(
                 $request->user(),
                 'file.download_capability',
