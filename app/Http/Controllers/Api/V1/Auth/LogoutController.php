@@ -11,7 +11,7 @@ class LogoutController
     public function __invoke(Request $request, SecurityAuditRecorder $audit): Response
     {
         $user = $request->user();
-        $user->currentAccessToken()?->delete();
+        $user->currentAccessToken()->delete();
 
         $audit->record($user, 'auth.logout', 'success', 'user', $user->id);
 
