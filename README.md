@@ -1,14 +1,14 @@
 # Secure File Gateway
 
-Security-focused file upload and delivery API built around **validation, quarantine, asynchronous scanning, auditability and controlled access**.
+Security-focused file upload and delivery API built around **validation, quarantine, asynchronous malware scanning, auditability and controlled access**.
 
-> **Status:** Secure ingestion implemented. Laravel 13, local infrastructure, bearer-token authentication, owner-scoped metadata and private quarantine ingestion are in place. Malware scanning and clean delivery are not implemented yet; no production-readiness claim is made.
+> **Status:** Scanning pipeline implemented. Authenticated uploads are validated, isolated in private quarantine, queued for ClamAV scanning and advanced through fail-closed lifecycle states. Clean files are promoted into private clean storage. Signed delivery, deletion lifecycle, audit hardening and the final OpenAPI/release evidence are still in progress; no production-readiness claim is made.
 
 ## Why this project exists
 
 File upload looks simple until the input has to be treated as hostile.
 
-This project is designed to demonstrate the engineering boundary between **receiving an untrusted object** and **releasing a controlled clean object**. It focuses on the backend/security decisions that are easy to hide in a generic upload demo: ownership, MIME spoofing, path safety, quarantine, scanner failure, lifecycle races, signed access, safe logging and auditability.
+This project demonstrates the engineering boundary between **receiving an untrusted object** and **releasing a controlled clean object**. It focuses on ownership, MIME spoofing, storage-path safety, quarantine, malware-scanner failure, lifecycle races, private storage, signed access, safe logging and testable failure semantics.
 
 It is intentionally **not** a cloud-drive clone.
 
@@ -27,16 +27,20 @@ Server-side MIME + SHA-256
     ↓
 Queue scan
     ↓
-┌──────────── clean ────────────┐
-│                               ↓
-│                         Private clean storage
-│                               ↓
-│                      Authorized short-lived access
-│
-└── unsafe / scanner error → non-downloadable state
+SCANNING
+  ┌──────────────┼──────────────┐
+  ↓              ↓              ↓
+clean          unsafe          error
+  ↓              ↓              ↓
+Private clean  REJECTED     retry → SCAN_FAILED
+storage
+  ↓
+AVAILABLE
+  ↓
+Authorized short-lived access   ← next layer
 ```
 
-The flow is implemented through `QUARANTINED`. Queue scanning and clean delivery are the next layers.
+The flow is now implemented through `AVAILABLE`, `REJECTED` and `SCAN_FAILED`. Controlled download capability and deletion are the next lifecycle layer.
 
 ## Security invariants
 
@@ -46,16 +50,17 @@ The flow is implemented through `QUARANTINED`. Queue scanning and clean delivery
 - Original filenames are display metadata only; object names are server-generated.
 - A file becomes `AVAILABLE` only after validation and a clean scanner result.
 - Scanner failure **fails closed**.
+- Unsafe files never enter clean storage.
 - Every file read/delete/download operation is ownership-authorized.
-- Clean storage remains private; access is short-lived and explicitly authorized.
+- Clean storage remains private; future access is short-lived and explicitly authorized.
 - Duplicate detection is scoped to the same owner so it does not become a cross-user presence oracle.
 - Audit/logging must not contain file bodies, bearer tokens, credentials or signed URLs.
 
 ## V1 stack
 
-`Laravel 13` · `PHP 8.3+` · `PostgreSQL` · `Redis` · `S3-compatible private storage` · `Laravel Sanctum` · `Docker Compose` · `OpenAPI`
+`Laravel 13` · `PHP 8.3+` · `PostgreSQL` · `Redis` · `S3-compatible private storage` · `Laravel Sanctum` · `ClamAV` · `Docker Compose` · `OpenAPI`
 
-The application now wires Laravel Sanctum bearer tokens, PostgreSQL/Redis configuration, UUID-backed ownership metadata, private quarantine ingestion and two private S3-compatible storage zones. The malware-scanner adapter arrives with the scanning layer rather than being claimed before use.
+The application currently wires bearer-token authentication, UUID-backed ownership metadata, private quarantine/clean storage zones, Redis-backed scan jobs and a ClamAV scanner adapter.
 
 ## Identity + ownership
 
@@ -77,11 +82,11 @@ GET  /api/v1/files/{file}
 - Logout revokes only the current bearer token.
 - File listings are owner-scoped at the query boundary.
 - Reading another user's file identifier returns `404` to reduce resource-enumeration leakage.
-- Metadata responses never expose owner IDs, quarantine keys or clean-storage keys.
+- Metadata responses never expose owner IDs, quarantine keys, clean-storage keys or internal scanner signatures.
 
 ## Secure ingestion
 
-`POST /api/v1/files` now implements the untrusted-file boundary through quarantine.
+`POST /api/v1/files` implements the untrusted-file boundary through quarantine and queue handoff.
 
 ```text
 Authenticated multipart upload
@@ -104,6 +109,8 @@ Per-owner duplicate check
     ↓
 Metadata persistence
     ↓
+Scan job dispatch
+    ↓
 202 Accepted / QUARANTINED
 ```
 
@@ -116,20 +123,57 @@ Implemented controls:
 - SHA-256 duplicate detection is scoped to one owner.
 - PostgreSQL enforces owner + SHA-256 uniqueness so concurrent duplicate requests cannot bypass the application pre-check.
 - The same bytes may exist for different owners; the API does not reveal cross-user duplicate information.
-- A new quarantine object is removed when MIME verification, duplicate checks or metadata persistence reject the upload.
+- New quarantine objects are removed when MIME verification, duplicate checks or metadata persistence reject the upload.
+- If scan-job dispatch fails, the implementation compensates by removing the new metadata row and quarantine object when possible. If metadata compensation itself fails, the private quarantine object is preserved rather than creating a metadata pointer to deleted bytes.
 - Upload creation has an independent default limit of 10 requests per minute per authenticated owner + IP.
-- Successful ingestion returns `202 Accepted` and remains `QUARANTINED`; scanning is not claimed yet.
+
+## Malware scanning pipeline
+
+A successful ingestion dispatches `ScanStoredFile` to the dedicated `scans` queue.
+
+```text
+QUARANTINED
+    ↓
+SCANNING
+    ↓
+ClamAV adapter / INSTREAM
+    ├── CLEAN  → copy to private clean storage → AVAILABLE
+    ├── FOUND  → REJECTED
+    └── error  → retry → final SCAN_FAILED
+```
+
+Security/reliability behavior:
+
+- Domain code depends on a `MalwareScanner` interface; ClamAV is the current infrastructure adapter.
+- The adapter streams quarantine bytes with ClamAV `INSTREAM`; it does not ask `clamd` to open a user-controlled path.
+- Local Docker Compose does **not** publish the ClamAV TCP port to the host. Only the internal worker network reaches it.
+- A scan job has 3 attempts, backoff of 5 then 30 seconds, a 30-second job timeout and per-file overlap protection.
+- Clean bytes are copied into private clean storage **before** the database state becomes `AVAILABLE`.
+- If clean promotion fails after creating the clean object, the new clean object is removed on the normal compensation path and the job fails closed.
+- Unsafe results become `REJECTED`; no clean object is created.
+- Final scanner/job failure becomes `SCAN_FAILED`; the quarantine object remains private for later operational reconciliation.
+- Terminal states are not scanned again.
+- Scanner engine/signature metadata stays internal and is not returned by normal file APIs.
+
+The CI suite uses deterministic scanner test doubles for lifecycle tests and a unit-tested ClamAV reply parser. Docker Compose provides the real ClamAV service for local integration; a dedicated real-engine integration test is not yet claimed by CI.
 
 ## Local development
 
-The development stack uses Docker Compose with PostgreSQL, Redis and MinIO. The MinIO initializer creates two private buckets: `sfg-quarantine` and `sfg-clean`.
+Docker Compose provides:
+
+- Laravel API;
+- dedicated `scans` queue worker;
+- PostgreSQL;
+- Redis;
+- MinIO with private `sfg-quarantine` and `sfg-clean` buckets;
+- ClamAV on the internal Compose network.
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-The API is then available at `http://localhost:8000` and the MinIO console at `http://localhost:9001`.
+The API is available at `http://localhost:8000` and the MinIO console at `http://localhost:9001`. ClamAV intentionally has no host port mapping.
 
 The credentials in `.env.example` are deliberately local-only examples. They must never be reused in shared, staging or production environments.
 
@@ -143,7 +187,7 @@ docker compose run --rm app php artisan test
 ## Health semantics
 
 - `GET /health/live` returns `200` when Laravel can boot and serve a request.
-- `GET /health/ready` currently returns `503` deliberately. Readiness will turn healthy only after concrete PostgreSQL, Redis and object-storage dependency probes exist.
+- `GET /health/ready` currently returns `503` deliberately. Readiness will turn healthy only after concrete PostgreSQL, Redis, object-storage and scanner dependency probes exist.
 
 This keeps the application fail-closed instead of pretending dependencies are ready before they are actually verified.
 
@@ -158,14 +202,14 @@ This keeps the application fail-closed instead of pretending dependencies are re
 
 The allowlist starts small on purpose. Adding content types expands attack surface and therefore requires explicit review and tests.
 
-## Planned lifecycle
+## Lifecycle
 
 ```text
-RECEIVED → QUARANTINED → SCANNING → AVAILABLE
-                              ├──→ REJECTED
-                              └──→ SCAN_FAILED
+QUARANTINED → SCANNING → AVAILABLE
+                  ├────→ REJECTED
+                  └────→ SCAN_FAILED
 
-AVAILABLE → DELETED
+AVAILABLE → DELETED   ← delivery/deletion layer next
 ```
 
 State transitions are server-controlled. Clients cannot mark a file clean or available.
@@ -190,7 +234,7 @@ POST   /api/v1/files
 GET    /api/v1/files
 GET    /api/v1/files/{file}
 
-# Planned next layers
+# Planned next layer
 DELETE /api/v1/files/{file}
 POST   /api/v1/files/{file}/download
 
@@ -198,13 +242,13 @@ GET    /health/live
 GET    /health/ready
 ```
 
-A successful upload returns `202 Accepted`; it stays non-downloadable in `QUARANTINED` until the scanning layer is implemented and returns a clean result.
+Uploads return `202 Accepted`. Clients poll the owned file resource as asynchronous scanning advances its server-controlled state.
 
 ## Quality gate
 
 Pull requests and pushes to `main` run the `Application Quality` workflow. The gate validates the Composer manifest, installs dependencies, boots the application, enforces Pint formatting, runs the complete feature/unit test suite and audits resolved Composer dependencies.
 
-Coverage includes identity/ownership controls plus ingestion authentication, size/extension policy, server-side MIME mismatch rejection, quarantine cleanup, SHA-256 duplicate isolation and upload throttling.
+Coverage includes identity/ownership controls, ingestion policy, MIME mismatch rejection, quarantine cleanup, SHA-256 duplicate isolation, upload throttling, queue handoff compensation, scan-job dispatch, clean promotion, unsafe rejection, fail-closed scanner errors, terminal-state idempotency and ClamAV reply parsing.
 
 GitHub Actions permissions are read-only, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs.
 
@@ -235,9 +279,9 @@ The goal is to make the core security boundary **small enough to understand and 
 2. **Application scaffold** — Laravel structure, local dependencies and quality tooling. **✓**
 3. **Identity + ownership** — token auth and object-level authorization. **✓**
 4. **Secure ingestion** — quarantine, file policy, MIME detection, hashing and duplicate handling. **✓**
-5. **Scanning pipeline** — queue worker, scanner adapter and fail-closed state transitions. **← next**
-6. **Controlled delivery** — clean storage, signed access and deletion behavior.
-7. **Hardening** — audit events, rate limits, security tests and dependency/CI controls.
+5. **Scanning pipeline** — queue worker, scanner adapter and fail-closed state transitions. **✓**
+6. **Controlled delivery** — signed access and deletion behavior. **← next**
+7. **Hardening** — audit events, rate limits, health/readiness probes and dependency/CI controls.
 8. **V1 evidence** — OpenAPI, reproducible demo, final documentation and tagged release.
 
 ## Repository principle
