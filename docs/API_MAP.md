@@ -13,7 +13,7 @@
 - Every HTTP response receives a server-generated `X-Request-ID`.
 - No endpoint returns quarantine or clean object keys.
 
-This document defines the V1 contract alongside implementation. Exact response envelopes may be refined when the OpenAPI specification is written, but security semantics should not drift silently.
+This document defines the V1 contract alongside implementation. `openapi.yaml` now provides the machine-readable OpenAPI 3.0.3 contract, and CI compares its documented methods/paths with the Laravel route table so public route drift fails the quality gate.
 
 ## Implementation status
 
@@ -35,11 +35,15 @@ Implemented:
 - concrete fail-closed dependency readiness checks;
 - targeted retry of storage cleanup for `DELETED` tombstones.
 
-Still planned for the release-evidence layer:
+Implemented release-evidence controls now also include:
 
-- final OpenAPI contract and drift validation;
-- remaining CI/release hardening and reproducible integration evidence;
-- tagged V1 release.
+- OpenAPI 3.0.3 contract parsing and public route/method drift validation;
+- committed Composer dependency locking and strict lock validation;
+- Larastan/PHPStan static analysis without a baseline;
+- full-history secret scanning;
+- real-container dependency readiness across PostgreSQL, Redis, both MinIO storage zones and ClamAV.
+
+Still planned before the tagged V1 release: a full real-engine upload/verdict/delivery evidence path, reproducible demo/release notes and final release-candidate review.
 
 No implemented normal-user endpoint exposes quarantine object keys, clean object keys, raw scanner output, internal malware signatures, deleted historical digests, internal audit rows or cross-user duplicate information.
 
@@ -454,20 +458,8 @@ Implemented independently:
 
 General authenticated API read throttling remains a release-hardening decision.
 
-## OpenAPI requirement
+## OpenAPI contract
 
-Before V1 release, `openapi.yaml` must define:
+`openapi.yaml` is implemented as OpenAPI 3.0.3 and covers every current public V1 operation, the temporary signed-content capability route, bearer/capability security semantics, lifecycle enum, upload constraints, request-correlation header, error/health schemas and controlled-delivery behavior.
 
-- every public endpoint and the temporary signed-content capability route;
-- authentication scheme;
-- request/response schemas;
-- error envelope;
-- lifecycle enum;
-- upload content type and size documentation;
-- signed-capability semantics and expiry;
-- request-correlation response header;
-- health response semantics;
-- example responses;
-- authorization expectations where representable.
-
-OpenAPI and implementation must be checked for drift in CI or by an explicit test/review step.
+`OpenApiContractTest` parses the specification through `league/openapi-psr7-validator` and requires its GET/POST/DELETE path set to match the Laravel public V1 + health route table exactly. Schema-level response conformance beyond the current contract/route checks can be expanded in the release-candidate layer.
