@@ -195,7 +195,7 @@ Pull-request CI must fail on relevant quality problems and include, as the imple
 
 CI configuration itself is reviewable code and follows least privilege.
 
-The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes the clean + EICAR ClamAV application-path scenario. The remaining release work is the reproducible demo/release artifacts, final license/release-note decisions, exact-commit DoD review and tagged release—not the core quality or real-engine gates listed above.
+The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. The remaining release work is final license/release-note decisions, the exact-commit DoD review and tagged release—not the core quality, real-engine or demo gates listed above.
 
 ## Local developer experience
 
@@ -208,7 +208,7 @@ A new contributor should be able to follow the README to:
 5. migrate the database;
 6. run the application/worker;
 7. run automated tests;
-8. perform a sample upload, scan and controlled-download flow;
+8. run the documented `bash scripts/demo-v1.sh` synthetic upload, scan, controlled-download and deletion flow;
 9. inspect readiness behavior;
 10. retry known deleted-object cleanup using the documented reconciliation command.
 
@@ -224,6 +224,7 @@ The repository must keep these current:
 - `docs/API_MAP.md`;
 - `docs/DECISIONS.md`;
 - `docs/DEFINITION_OF_DONE.md`;
+- `docs/V1_DEMO.md`;
 - `SECURITY.md`;
 - OpenAPI specification before public V1;
 - changelog/release notes once versioned releases begin.
