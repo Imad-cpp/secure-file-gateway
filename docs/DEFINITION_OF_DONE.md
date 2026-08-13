@@ -93,6 +93,8 @@ Automated tests must prove:
 - signed capability semantics, expiry and bearer-capability limitation are documented explicitly.
 - health responses remain aggregate-only and do not reveal dependency-specific failures.
 
+**Current API-contract status:** `openapi.yaml` now covers the public V1 + signed capability + health surface, is parsed by the PHP OpenAPI validator, and has an automated route/method drift check against Laravel.
+
 ## Security completion
 
 Before V1 release:
@@ -176,7 +178,9 @@ Required test layers:
 
 At least one CI/local integration path must exercise the real database, Redis queue coordination and S3-compatible storage boundary.
 
-The malware scanner may use a deterministic test adapter in ordinary CI, but a documented real-scanner integration check is required before the project is presented as demonstrating operational malware scanning.
+**Current integration status:** CI boots PostgreSQL, Redis, MinIO, ClamAV and the non-root Laravel application, applies the real PostgreSQL migrations and requires `/health/ready` to verify every dependency. This satisfies the real dependency/readiness boundary.
+
+The malware lifecycle suite may use deterministic test adapters in ordinary tests, but a full real-engine file-processing check is still required before the project claims end-to-end operational malware-scanning evidence.
 
 ## CI completion
 
@@ -193,7 +197,7 @@ Pull-request CI must fail on relevant quality problems and include, as the imple
 
 CI configuration itself is reviewable code and follows least privilege.
 
-The current `Application Quality` gate already validates the Composer manifest, installs dependencies, boots the app, runs Pint, executes the full PHPUnit suite and audits resolved Composer dependencies. Lockfile discipline, static analysis, spec validation and explicit secret-hygiene automation remain release-hardening work.
+The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure/readiness job. The remaining release evidence is the full real-engine file-processing scenario plus final demo/release artifacts—not the core quality gates listed above.
 
 ## Local developer experience
 
