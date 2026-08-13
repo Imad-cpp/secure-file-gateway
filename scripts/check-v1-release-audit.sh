@@ -41,7 +41,8 @@ for temporary_workflow in \
   .github/workflows/sync-v1-demo-evidence.yml \
   .github/workflows/sync-v1-release-artifacts.yml \
   .github/workflows/generate-composer-lock.yml \
-  .github/workflows/sync-v1-docs.yml; do
+  .github/workflows/sync-v1-docs.yml \
+  .github/workflows/sync-v1-final-audit.yml; do
   [[ ! -e "$temporary_workflow" ]] || fail "temporary-workflow-present:$temporary_workflow"
 done
 
