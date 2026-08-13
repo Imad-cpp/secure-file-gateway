@@ -1,0 +1,125 @@
+name: Sync V1 Demo Evidence
+
+on:
+  push:
+    branches:
+      - docs/reproducible-v1-demo
+    paths:
+      - .github/workflows/sync-v1-demo-evidence.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: docs/reproducible-v1-demo
+          fetch-depth: 0
+
+      - name: Apply guarded evidence updates
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected target exactly once, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "README.md",
+              "> **Status:** The V1 contract and core release-evidence gates are machine checked, including a real ClamAV application-path scenario in CI. A clean upload must pass through the Redis worker and ClamAV, reach `AVAILABLE`, stream byte-identical content through a temporary signed URL and delete successfully; a runtime-generated EICAR antivirus test fixture must reach `REJECTED` and remain non-downloadable. Reproducible demo artifacts, final release notes/license review, the exact-commit Definition-of-Done audit and the tagged V1 release remain; no production-readiness or malware-detection-completeness claim is made.",
+              "> **Status:** The V1 contract and core release-evidence gates are machine checked, including real ClamAV application-path evidence and a CI-executed reproducible public demo. The demo registers a synthetic user, authenticates, uploads a clean text fixture, waits for `AVAILABLE`, downloads byte-identical content through a short-lived signed URL and deletes the file. Final release notes/license review, the exact-commit Definition-of-Done audit and the tagged V1 release remain; no production-readiness, availability-guarantee or malware-detection-completeness claim is made."
+          )
+
+          replace_once(
+              "README.md",
+              "Useful checks:\n\n```bash\ndocker compose run --rm app vendor/bin/pint --test\ndocker compose run --rm app php artisan test\n```\n\n## Initial V1 file policy",
+              "Useful checks:\n\n```bash\ndocker compose run --rm app vendor/bin/pint --test\ndocker compose run --rm app php artisan test\n```\n\nReproducible public V1 demo:\n\n```bash\nbash scripts/demo-v1.sh\n```\n\nThe demo uses synthetic content and does not print its bearer token or signed URL. See [Reproducible V1 Demo](docs/V1_DEMO.md) for the full startup, readiness and cleanup sequence.\n\n## Initial V1 file policy"
+          )
+
+          replace_once(
+              "README.md",
+              "- [OpenAPI Contract](openapi.yaml) — machine-checked OpenAPI 3.0.3 description of the public V1 HTTP surface.\n- [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.",
+              "- [OpenAPI Contract](openapi.yaml) — machine-checked OpenAPI 3.0.3 description of the public V1 HTTP surface.\n- [Reproducible V1 Demo](docs/V1_DEMO.md) — executable synthetic clean-file user journey verified by the permanent integration gate.\n- [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim."
+          )
+
+          replace_once(
+              "README.md",
+              "Pull requests and pushes to `main` run three independent `Application Quality` jobs. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations and requires `/health/ready` to become `ready` before teardown.",
+              "Pull requests and pushes to `main` run three independent `Application Quality` jobs. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations, requires `/health/ready` to become `ready`, starts the real scan worker, executes the clean + EICAR ClamAV lifecycle check, then executes the reproducible synthetic public V1 demo before teardown."
+          )
+
+          replace_once(
+              "README.md",
+              "GitHub Actions permissions are read-only for the permanent quality workflow, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs. The real-container job now proves both dependency readiness and a real ClamAV application lifecycle for clean and EICAR test content. It does **not** prove detection completeness, arbitrary-file safety or production operational maturity. See `docs/V1_EVIDENCE.md` for the evidence boundary.",
+              "GitHub Actions permissions are read-only for the permanent quality workflow, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs. The real-container job proves dependency readiness, a real ClamAV application lifecycle for clean and EICAR test content, and the documented normal public flow from synthetic registration through byte-verified signed delivery and deletion. It does **not** prove detection completeness, arbitrary-file safety, production availability or production operational maturity. See `docs/V1_EVIDENCE.md` for the evidence boundary."
+          )
+
+          replace_once(
+              "README.md",
+              "9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible demo, release notes/license decision, final DoD audit and tagged V1 remain. **← current**",
+              "9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; release notes/license decision, final DoD audit and tagged V1 remain. **← current**"
+          )
+
+          replace_once(
+              "docs/V1_EVIDENCE.md",
+              "8. assembles the EICAR antivirus test string at runtime from fragments, uploads it through the same API path, requires real ClamAV to transition it to `REJECTED`, and requires download-capability issuance to return `409 FILE_NOT_AVAILABLE`;\n9. tears down the disposable environment and volumes.",
+              "8. assembles the EICAR antivirus test string at runtime from fragments, uploads it through the same API path, requires real ClamAV to transition it to `REJECTED`, and requires download-capability issuance to return `409 FILE_NOT_AVAILABLE`;\n9. executes `scripts/demo-v1.sh`, which registers a unique synthetic user through the public API, logs in without printing its token, uploads clean text, waits for `AVAILABLE`, issues a signed capability without printing it, verifies downloaded bytes and deletes the file;\n10. tears down the disposable environment and volumes."
+          )
+
+          replace_once(
+              "docs/V1_EVIDENCE.md",
+              "EICAR is a harmless anti-malware test fixture. A passing EICAR check demonstrates integration with the configured scanning engine; it does not prove detection completeness or that arbitrary files are safe.\n\n## Explicitly not proven yet",
+              "EICAR is a harmless anti-malware test fixture. A passing EICAR check demonstrates integration with the configured scanning engine; it does not prove detection completeness or that arbitrary files are safe.\n\n## Reproducible public demo evidence\n\n`infrastructure-integration` also executes the same `scripts/demo-v1.sh` documented in `docs/V1_DEMO.md`. It uses a unique synthetic `example.test` identity and synthetic text fixture, then exercises only public application interfaces: registration → login → upload → lifecycle polling → signed-capability issuance → byte-identical download → owner deletion.\n\nThe script deliberately does not print the bearer token or signed URL. A passing `V1_DEMO=PASS` marker proves that the documented normal V1 journey is executable against the configured real-container integration environment. It does not establish production availability, performance, operational maturity or security beyond the boundaries separately tested and documented.\n\n## Explicitly not proven yet"
+          )
+
+          replace_once(
+              "docs/V1_EVIDENCE.md",
+              "Before tagging public `v1.0.0`, the remaining evidence should include:\n\n1. a reproducible documented demo flow from registration through upload/state polling and controlled delivery;\n2. final changelog/release notes and a license decision;\n3. a complete Definition-of-Done review against the exact release commit;\n4. green post-merge CI on the release candidate.\n\nThe deterministic real-ClamAV clean + EICAR application-path check is now satisfied by the permanent `Application Quality` workflow.",
+              "Before tagging public `v1.0.0`, the remaining evidence should include:\n\n1. final changelog/release notes and a license decision;\n2. a complete Definition-of-Done review against the exact release commit;\n3. green post-merge CI on the release candidate.\n\nThe deterministic real-ClamAV clean + EICAR application-path check and the reproducible synthetic public demo are now satisfied by the permanent `Application Quality` workflow."
+          )
+
+          replace_once(
+              "docs/DEFINITION_OF_DONE.md",
+              "The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes the clean + EICAR ClamAV application-path scenario. The remaining release work is the reproducible demo/release artifacts, final license/release-note decisions, exact-commit DoD review and tagged release—not the core quality or real-engine gates listed above.",
+              "The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. The remaining release work is final license/release-note decisions, the exact-commit DoD review and tagged release—not the core quality, real-engine or demo gates listed above."
+          )
+
+          replace_once(
+              "docs/DEFINITION_OF_DONE.md",
+              "8. perform a sample upload, scan and controlled-download flow;",
+              "8. run the documented `bash scripts/demo-v1.sh` synthetic upload, scan, controlled-download and deletion flow;"
+          )
+
+          replace_once(
+              "docs/DEFINITION_OF_DONE.md",
+              "- `docs/DEFINITION_OF_DONE.md`;\n- `SECURITY.md`;",
+              "- `docs/DEFINITION_OF_DONE.md`;\n- `docs/V1_DEMO.md`;\n- `SECURITY.md`;"
+          )
+
+          replace_once(
+              "docs/DECISIONS.md",
+              "## Deferred decisions\n\nThe following are intentionally not frozen yet:",
+              "## D-043 — The public V1 demo is executable and CI-checked\n\n**Status:** Accepted for V1\n\n**Decision:** `scripts/demo-v1.sh` is the canonical executable normal-user demo and `docs/V1_DEMO.md` is its human-facing runbook. The script uses a unique synthetic `example.test` account and synthetic clean text, exercises only public HTTP interfaces, verifies byte-identical signed delivery, deletes the owned file, and does not print its bearer token or signed URL.\n\nThe permanent real-container integration job runs the same script after migrations, aggregate readiness and scan-worker startup succeed.\n\n**Why:** a portfolio demo should be reproducible evidence rather than a command sequence that can silently drift from the application. Running the documented flow in CI keeps the normal user journey reviewable and continuously checked.\n\n**Evidence boundary:** a passing demo proves reproducibility of this synthetic normal flow in the configured integration environment. It does not prove production availability, performance, operational maturity or broader security properties.\n\n## Deferred decisions\n\nThe following are intentionally not frozen yet:"
+          )
+          PY
+
+          git diff --check
+          git diff -- README.md docs/V1_EVIDENCE.md docs/DEFINITION_OF_DONE.md docs/DECISIONS.md
+
+      - name: Commit synchronized evidence
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md docs/V1_EVIDENCE.md docs/DEFINITION_OF_DONE.md docs/DECISIONS.md
+          git diff --cached --quiet && { echo 'Expected documentation changes were not produced.' >&2; exit 1; }
+          git commit -m 'docs: record reproducible V1 demo evidence'
+          git push origin HEAD:docs/reproducible-v1-demo
