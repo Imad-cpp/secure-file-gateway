@@ -14,12 +14,16 @@ Client
   | HTTPS + Bearer token
   v
 Laravel API
+  |-- request correlation
   |-- authentication / ownership authorization
   |-- upload policy + MIME/hash verification
   |-- lifecycle metadata
   |-- signed capability issuance
+  |-- sanitized security audit
   |
   +------> PostgreSQL
+  |          |-- users / stored_files
+  |          `-- audit_events
   |
   +------> Redis queue / rate-limit coordination
   |
@@ -56,17 +60,21 @@ Owned lifecycle resource
        | DELETE
        v
     DELETED → private object cleanup
+                |
+                `→ targeted reconciliation if cleanup is pending
 ```
 
 ## Implemented stack
 
 - **Application:** Laravel 13 API application.
-- **Database:** PostgreSQL as the source of truth for file metadata and lifecycle state.
+- **Database:** PostgreSQL as the source of truth for file metadata, lifecycle state and internal audit rows.
 - **Queue/cache coordination:** Redis.
 - **Object storage:** two private S3-compatible logical zones; MinIO is used for local development.
 - **Authentication:** Laravel Sanctum bearer tokens for normal authenticated API operations.
 - **Controlled delivery:** Laravel temporary signed application routes that re-check current lifecycle state before private clean bytes are streamed.
 - **Malware scanning:** `MalwareScanner` application contract with a ClamAV `clamd` adapter.
+- **Request correlation:** server-generated UUID propagated to response headers and internal audit rows.
+- **Readiness:** concrete PostgreSQL, Redis, private-storage and ClamAV probes with a minimal public response.
 - **Local environment:** Docker Compose with API, dedicated scan worker, PostgreSQL, Redis, MinIO and internal-only ClamAV.
 - **API documentation:** OpenAPI is required before V1 is considered complete.
 
@@ -94,7 +102,11 @@ Owns owner-authorized capability issuance, `AVAILABLE` enforcement, temporary si
 
 ### Audit
 
-Will own append-oriented security events without storing file contents, bearer tokens, credentials or signed URLs.
+Owns append-oriented internal security-event persistence. Events carry actor/action/target/outcome/request correlation plus bounded sanitized metadata. Normal-user APIs do not expose audit rows.
+
+### Operations
+
+Owns health/readiness checks and targeted retry of private-object cleanup for `DELETED` tombstones. It deliberately does not perform an unbounded bucket-wide orphan sweep in V1.
 
 ## File lifecycle
 
@@ -147,13 +159,35 @@ Implemented core fields include:
 
 Owner + active SHA-256 uniqueness is enforced in the database. Clearing active `sha256` on deletion allows the same owner to upload identical bytes again while retaining the old digest internally for lifecycle evidence.
 
+### audit_events
+
+Implemented fields:
+
+- `id` — UUID;
+- `actor_id` — nullable user UUID;
+- `action`;
+- `target_type`;
+- `target_id` — nullable UUID;
+- `outcome`;
+- `request_id` — nullable server-generated HTTP correlation UUID;
+- `metadata` — bounded sanitized JSON;
+- timestamps.
+
+The audit recorder filters sensitive key classes recursively before persistence. Audit rows are internal and append-oriented by application design; there is no normal-user audit endpoint.
+
+**Current boundary:** audit persistence is best-effort and is not transactionally coupled to all database/object-storage side effects. A failed audit write emits only a bounded safe warning and does not falsify an operation's HTTP result.
+
 ### failed_jobs
 
 Laravel database-backed failed-job storage records queue failures for operational inspection. Raw failed-job payloads are operational data and are not exposed through normal user APIs.
 
-### audit_events
+## Request correlation
 
-Planned, not yet implemented. Expected safe fields include actor, action, target, outcome, request correlation data and bounded contextual metadata.
+A global HTTP middleware creates a fresh UUID per request and stores it in request attributes. Normal responses receive it as `X-Request-ID`.
+
+Laravel's final exception-response hook also attaches the same ID to rendered error responses. Caller-provided request IDs are ignored rather than trusted.
+
+Security audit rows created during that request reuse the server-generated ID when available.
 
 ## Storage boundaries
 
@@ -168,7 +202,7 @@ On a clean result, the worker streams the quarantine object into clean storage f
 
 On an unsafe verdict, the file becomes `REJECTED`; no clean object is created. The normal path removes the quarantined unsafe object.
 
-On final scanner/job failure, the file becomes `SCAN_FAILED` and its quarantine object remains private for later reconciliation.
+On final scanner/job failure, the file becomes `SCAN_FAILED` and its quarantine object remains private for later reconciliation decisions.
 
 Delivery does not make clean storage public. The signed capability addresses an application route, and the application opens the private clean object only after validating the capability and current lifecycle state.
 
@@ -186,7 +220,8 @@ Delivery does not make clean storage public. The signed capability addresses an 
 10. Perform per-owner duplicate detection; database uniqueness closes concurrent races.
 11. Persist owned metadata as `QUARANTINED`.
 12. Dispatch `ScanStoredFile` to the `scans` queue.
-13. Return `202 Accepted`.
+13. Record a sanitized accepted-upload audit event.
+14. Return `202 Accepted`.
 
 If queue dispatch fails, V1 uses explicit compensation: remove the newly persisted metadata and quarantine object when possible. If metadata compensation cannot complete, quarantine is preserved rather than deleting bytes an existing row may still reference.
 
@@ -222,6 +257,7 @@ The current local adapter uses `clamd` TCP solely inside the Compose network.
 - Scanner replies are reduced to application outcomes: clean, unsafe/signature, or error.
 - Empty, unknown or error replies fail closed.
 - Scanner engine/signature metadata is not returned by normal file APIs.
+- Readiness uses the separate ClamAV `PING` command and expects `PONG`; it never scans user bytes merely to determine health.
 
 The application contract remains replaceable; the domain does not depend directly on ClamAV protocol types.
 
@@ -234,7 +270,8 @@ The application contract remains replaceable; the domain does not depend directl
 3. Require `state = AVAILABLE` and a clean object key.
 4. Apply the independent download-capability rate limit.
 5. Generate a temporary signed URL to the application content route.
-6. Return `url` and `expires_at` with private/no-store response semantics.
+6. Record a sanitized issued/denied audit event without the signed URL.
+7. Return `url` and `expires_at` with private/no-store response semantics.
 
 Default capability lifetime is 300 seconds. Default issuance limit is 20 requests/minute per owner + IP.
 
@@ -257,11 +294,18 @@ The signed content URL is a temporary bearer capability and does not require the
 4. Capture any quarantine/clean object keys.
 5. Delete referenced private objects.
 6. Clear object keys only after successful storage cleanup.
-7. Return `204 No Content`.
+7. Record sanitized success or partial-failure audit metadata.
+8. Return `204 No Content` after complete cleanup.
 
 The operation is retry-safe: an already-`DELETED` resource can be deleted again. If storage cleanup fails, the row stays `DELETED` and unresolved keys remain for another retry; the API returns `503 DEPENDENCY_UNAVAILABLE`.
 
 Because delivery requires current `AVAILABLE`, the `DELETED` transition revokes previously issued capabilities before object cleanup completes.
+
+### Targeted cleanup reconciliation
+
+`files:reconcile-deleted` selects only `DELETED` rows that still contain database-referenced private object keys. It retries each referenced delete, clears successful keys and leaves failures referenced for a future run.
+
+The command does not enumerate arbitrary objects in a bucket and does not delete content without a PostgreSQL tombstone reference.
 
 ### Scan/deletion race behavior
 
@@ -273,6 +317,32 @@ Deletion and scanning may overlap operationally. The safety property is state-ba
 - later scan retries see terminal `DELETED` and return without publishing content.
 
 This protects delivery correctness without claiming a fully transactional database/object-storage boundary.
+
+## Audit behavior
+
+The audit recorder is intentionally narrow:
+
+- fixed/bounded action and outcome names;
+- target IDs rather than file bodies or object keys;
+- bounded string metadata;
+- recursive blocking of keys resembling Authorization, token, password, secret, credential, signature, URL, object-key, contents, payload or body data;
+- no normal-user audit API.
+
+Current audited application actions are registration, login success/failure, logout, accepted upload, capability issued/denied and delete success/partial failure.
+
+A transactional outbox or immutable external forensic store may be justified later, but is not claimed by V1.
+
+## Readiness behavior
+
+`InfrastructureReadinessChecker` fails closed if any required dependency check fails:
+
+1. PostgreSQL `select 1`;
+2. Redis `PING`;
+3. non-mutating existence request against quarantine storage;
+4. non-mutating existence request against clean storage;
+5. internal ClamAV `PING` / `PONG`.
+
+The public endpoint returns only overall `ready` or `not_ready`; dependency-specific failures stay internal.
 
 ## Initial file policy
 
@@ -295,16 +365,19 @@ Expanding the accepted format set requires explicit review because every additio
 - Signed delivery re-checks current state at use time.
 - Deletion sets the tombstone before private object cleanup so delivery fails closed during partial failure.
 - Deletion retries retain unresolved storage keys until cleanup succeeds.
+- Targeted reconciliation touches only database-referenced keys on `DELETED` rows.
 - Partial failures use explicit compensation where practical.
-- Orphan reconciliation / transactional-outbox behavior remains hardening work rather than an unclaimed guarantee.
+- Generic bucket-orphan reconciliation and transactional-outbox behavior remain outside current guarantees.
 
 ## Observability and readiness
 
-Health endpoints currently remain intentionally conservative. `/health/ready` returns `503` until concrete database, Redis, object-storage and scanner probes are implemented.
+Safe operational correlation is available through server-generated `X-Request-ID` values and internal audit rows.
 
-Future logs/audit events must not leak secrets, raw tokens, signed URLs, object keys or file contents.
+`/health/ready` now checks concrete dependencies but intentionally returns only aggregate health. It must not expose credentials, bucket names, scanner replies beyond health state, internal stack traces or topology.
 
-Useful operational signals include upload decisions, scan outcomes, queue failures/retries, state-transition failures, capability issuance/denial, signed-content failures, deletion cleanup outcomes and dependency health.
+Logs/audit events must not leak secrets, raw tokens, signed URLs, object keys or file contents.
+
+Useful operational signals include upload decisions, scan outcomes, queue failures/retries, state-transition failures, capability issuance/denial, deletion cleanup outcomes, reconciliation summaries and dependency health.
 
 ## Out of scope for V1
 
@@ -318,6 +391,8 @@ Useful operational signals include upload decisions, scan outcomes, queue failur
 - collaborative folders;
 - antivirus signature-management UI;
 - cross-user duplicate disclosure;
+- generic bucket-wide orphan deletion;
+- immutable external forensic ledger;
 - end-to-end encryption with user-managed keys.
 
 These exclusions keep the first release centered on a small, reviewable security boundary.

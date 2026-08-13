@@ -2,6 +2,7 @@
 
 use App\Exceptions\FileLifecycleException;
 use App\Exceptions\IngestionException;
+use App\Http\Middleware\RequestCorrelation;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -19,12 +20,22 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        // API authentication and throttling are attached at route level.
+        $middleware->append(RequestCorrelation::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        $exceptions->respond(function (Response $response): Response {
+            $requestId = request()->attributes->get('request_id');
+
+            if (is_string($requestId)) {
+                $response->headers->set('X-Request-ID', $requestId);
+            }
+
+            return $response;
+        });
 
         $exceptions->render(function (IngestionException $exception, Request $request) {
             if (! $request->is('api/*')) {

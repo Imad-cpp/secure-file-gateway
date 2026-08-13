@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\ReadinessChecker;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -16,9 +17,14 @@ Route::get('/health/live', function () {
     ]);
 });
 
-Route::get('/health/ready', function () {
+Route::get('/health/ready', function (ReadinessChecker $readiness) {
+    if (! $readiness->isReady()) {
+        return response()->json([
+            'status' => 'not_ready',
+        ], 503);
+    }
+
     return response()->json([
-        'status' => 'not_ready',
-        'reason' => 'dependency probes are introduced with the integration layer',
-    ], 503);
+        'status' => 'ready',
+    ]);
 });
