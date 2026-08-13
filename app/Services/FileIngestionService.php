@@ -3,6 +3,10 @@
 namespace App\Services;
 
 use App\Exceptions\IngestionException;
+use App\Files\FileDuplicatePolicy;
+use App\Files\FileIngestionPolicy;
+use App\Files\FileLifecyclePolicy;
+use App\Files\StorageObjectKey;
 use App\Jobs\ScanStoredFile;
 use App\Models\StoredFile;
 use App\Models\User;
@@ -19,6 +23,8 @@ class FileIngestionService
 {
     public function __construct(
         private readonly Dispatcher $dispatcher,
+        private readonly FileIngestionPolicy $policy,
+        private readonly FileDuplicatePolicy $duplicates,
     ) {}
 
     public function ingest(User $owner, UploadedFile $upload): StoredFile
@@ -33,7 +39,7 @@ class FileIngestionService
             );
         }
 
-        if ($size > config('file_ingestion.max_bytes')) {
+        if ($this->policy->exceedsMaxBytes($size)) {
             throw new IngestionException(
                 'FILE_TOO_LARGE',
                 Response::HTTP_UNPROCESSABLE_ENTITY,
@@ -43,9 +49,8 @@ class FileIngestionService
 
         $originalName = $this->safeOriginalName($upload->getClientOriginalName());
         $extension = Str::lower(pathinfo($originalName, PATHINFO_EXTENSION));
-        $allowedTypes = config('file_ingestion.allowed_types');
 
-        if ($extension === '' || ! array_key_exists($extension, $allowedTypes)) {
+        if ($extension === '' || ! $this->policy->allowsExtension($extension)) {
             throw new IngestionException(
                 'FILE_TYPE_NOT_ALLOWED',
                 Response::HTTP_UNPROCESSABLE_ENTITY,
@@ -70,7 +75,7 @@ class FileIngestionService
         try {
             $detectedMimeType = $this->detectMimeType($realPath);
 
-            if (! in_array($detectedMimeType, $allowedTypes[$extension], true)) {
+            if (! $this->policy->allowsMime($extension, $detectedMimeType)) {
                 throw new IngestionException(
                     'FILE_TYPE_MISMATCH',
                     Response::HTTP_UNPROCESSABLE_ENTITY,
@@ -88,10 +93,7 @@ class FileIngestionService
                 );
             }
 
-            if (StoredFile::query()
-                ->where('owner_id', $owner->id)
-                ->where('sha256', $sha256)
-                ->exists()) {
+            if ($this->duplicates->exists((string) $owner->id, $sha256)) {
                 throw $this->duplicateException();
             }
 
@@ -102,7 +104,7 @@ class FileIngestionService
                 'sha256' => $sha256,
                 'quarantine_object_key' => $objectKey,
                 'clean_object_key' => null,
-                'state' => 'QUARANTINED',
+                'state' => FileLifecyclePolicy::QUARANTINED,
             ]);
             $storedFile->id = $fileId;
 
@@ -153,11 +155,13 @@ class FileIngestionService
 
     private function writeToQuarantine(User $owner, UploadedFile $upload, string $fileId): string
     {
+        $canonicalKey = StorageObjectKey::forOwnerFile((string) $owner->id, $fileId);
+
         try {
             $objectKey = Storage::disk('quarantine')->putFileAs(
-                $owner->id,
+                dirname($canonicalKey),
                 $upload,
-                $fileId,
+                basename($canonicalKey),
                 ['visibility' => 'private'],
             );
         } catch (FilesystemException $exception) {
@@ -231,9 +235,9 @@ class FileIngestionService
         try {
             StoredFile::query()
                 ->whereKey($storedFile->id)
-                ->where('state', 'QUARANTINED')
+                ->where('state', FileLifecyclePolicy::QUARANTINED)
                 ->update([
-                    'state' => 'SCAN_FAILED',
+                    'state' => FileLifecyclePolicy::SCAN_FAILED,
                     'scan_engine' => 'clamav',
                     'scan_signature' => null,
                     'scan_completed_at' => now(),
