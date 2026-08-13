@@ -6,6 +6,7 @@ use App\Models\StoredFile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 class ControlledDeliveryTest extends TestCase
@@ -62,8 +63,9 @@ class ControlledDeliveryTest extends TestCase
             $this->authHeaders($owner),
         )
             ->assertOk()
-            ->assertHeader('Cache-Control', 'private, no-store, max-age=0')
             ->assertJsonStructure(['data' => ['url', 'expires_at']]);
+
+        $this->assertPrivateNoStore($response);
 
         $url = (string) $response->json('data.url');
 
@@ -86,10 +88,10 @@ class ControlledDeliveryTest extends TestCase
         $response = $this->get($this->requestTarget($url))
             ->assertOk()
             ->assertHeader('Content-Type', 'application/pdf')
-            ->assertHeader('Cache-Control', 'private, no-store, max-age=0')
             ->assertHeader('X-Content-Type-Options', 'nosniff')
             ->assertDownload('report.pdf');
 
+        $this->assertPrivateNoStore($response);
         $this->assertSame($contents, $response->streamedContent());
     }
 
@@ -304,5 +306,14 @@ class ControlledDeliveryTest extends TestCase
         $query = parse_url($url, PHP_URL_QUERY);
 
         return $path.(is_string($query) && $query !== '' ? '?'.$query : '');
+    }
+
+    private function assertPrivateNoStore(TestResponse $response): void
+    {
+        $cacheControl = (string) $response->headers->get('Cache-Control');
+
+        $this->assertStringContainsString('private', $cacheControl);
+        $this->assertStringContainsString('no-store', $cacheControl);
+        $this->assertStringContainsString('max-age=0', $cacheControl);
     }
 }
