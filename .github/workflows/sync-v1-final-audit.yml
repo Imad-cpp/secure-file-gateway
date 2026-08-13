@@ -1,0 +1,115 @@
+name: Sync V1 Final Audit
+
+on:
+  push:
+    branches:
+      - test/v1-final-dod-audit
+    paths:
+      - .github/workflows/sync-v1-final-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: test/v1-final-dod-audit
+
+      - name: Apply guarded documentation synchronization
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected replacement target exactly once, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'README.md',
+              '> **Status:** The V1 contract and core release-evidence gates are machine checked, including real ClamAV application-path evidence and a CI-executed reproducible public demo. The MIT license, changelog and prepared `v1.0.0` release notes are now in-repository. The exact-commit Definition-of-Done audit and tagged V1 release remain; no production-readiness, availability-guarantee or malware-detection-completeness claim is made.',
+              '> **Status:** The V1 contract, security evidence, release artifacts and Definition-of-Done are now encoded in permanent machine-checked gates, including a dependent `release-audit` job that runs only after PHP quality, secret hygiene and real infrastructure integration succeed on the same commit. The `v1.0.0` tag/release remains unpublished until that gate is green on the exact `main` commit selected for release; no production-readiness, availability-guarantee or malware-detection-completeness claim is made.',
+          )
+
+          replace_once(
+              'README.md',
+              '- [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.\n- [Changelog](CHANGELOG.md)',
+              '- [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.\n- [V1 Release Audit](docs/V1_RELEASE_AUDIT.md) — Definition-of-Done verdict, exact-commit release gate and tagging rule.\n- [Changelog](CHANGELOG.md)',
+          )
+
+          replace_once(
+              'README.md',
+              'Pull requests and pushes to `main` run three independent `Application Quality` jobs. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations, requires `/health/ready` to become `ready`, starts the real scan worker, executes the clean + EICAR ClamAV lifecycle check, then executes the reproducible synthetic public V1 demo before teardown.',
+              'Pull requests and pushes to `main` run three substantive `Application Quality` jobs plus a dependent release gate. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations, requires `/health/ready` to become `ready`, starts the real scan worker, executes the clean + EICAR ClamAV lifecycle check, then executes the reproducible synthetic public V1 demo before teardown. `release-audit` runs only after all three succeed and machine-checks the V1 Definition-of-Done/release artifacts on that same commit.',
+          )
+
+          replace_once(
+              'README.md',
+              '9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; MIT license + changelog + prepared release notes **✓**; final exact-commit DoD audit and tagged V1 remain. **← current**',
+              '9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; MIT license + changelog + prepared release notes **✓**; exact-commit DoD release gate **✓ automated**; tagged V1 remains. **← current**',
+          )
+
+          replace_once(
+              'docs/V1_EVIDENCE.md',
+              'Before tagging public `v1.0.0`, the remaining evidence should include:\n\n1. a complete Definition-of-Done review against the exact release commit;\n2. green post-merge CI on the release candidate.\n\nThe deterministic real-ClamAV clean + EICAR application-path check, reproducible synthetic public demo and release-artifact preparation are now satisfied.',
+              'The final Definition-of-Done review is recorded in `docs/V1_RELEASE_AUDIT.md` and enforced by the permanent dependent `release-audit` job. That job can run only after `php-quality`, `secret-hygiene` and `infrastructure-integration` succeed on the same commit, then verifies the required V1 artifacts and evidence boundaries and emits `V1_RELEASE_AUDIT=PASS`.\n\nBefore tagging public `v1.0.0`, the remaining release evidence is one green post-merge `Application Quality` run on the exact `main` commit selected for the tag, including successful `release-audit`. The deterministic real-ClamAV clean + EICAR application-path check, reproducible synthetic public demo, release-artifact preparation and machine-checked DoD gate are now implemented.',
+          )
+
+          replace_once(
+              'docs/DEFINITION_OF_DONE.md',
+              '- lifecycle transition rules;\n- file-policy mapping;\n- scanner-result mapping;\n- generated storage naming;\n- duplicate-detection policy;\n- security-sensitive value/log sanitization helpers where applicable.',
+              '- lifecycle transition rules;\n- file-policy mapping;\n- scanner-result mapping;\n- generated storage naming;\n- duplicate-detection policy;\n- security-sensitive value/log sanitization helpers where applicable.\n\n**Current unit status:** production-used lifecycle, ingestion, duplicate, object-key and audit-sanitizer policies now have focused unit coverage, alongside ClamAV reply/result mapping tests.',
+          )
+
+          replace_once(
+              'docs/DEFINITION_OF_DONE.md',
+              'The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. The MIT license, changelog and prepared `v1.0.0` release notes are now present. The remaining release work is the exact-commit DoD review and tagged release—not the core quality, real-engine, demo or release-artifact gates listed above.',
+              'The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift and CORS deny-by-default checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. A dependent `release-audit` job runs only after those three substantive jobs succeed and machine-checks the V1 Definition-of-Done/release artifacts on the same commit. The remaining publication step is a green post-merge exact-main gate followed by the immutable `v1.0.0` tag/release.',
+          )
+
+          replace_once(
+              'docs/DEFINITION_OF_DONE.md',
+              '- `docs/V1_DEMO.md`;\n- `SECURITY.md`;',
+              '- `docs/V1_DEMO.md`;\n- `docs/V1_RELEASE_AUDIT.md`;\n- `SECURITY.md`;',
+          )
+
+          replace_once(
+              'docs/DECISIONS.md',
+              '## Deferred decisions\n',
+              '''## D-045 — V1 tagging requires a successful exact-commit release audit\n\n**Status:** Accepted for V1\n\n**Decision:** the permanent `Application Quality` workflow includes a `release-audit` job that depends on successful `php-quality`, `secret-hygiene` and `infrastructure-integration` jobs. It then runs `scripts/check-v1-release-audit.sh` against the same repository snapshot. The `v1.0.0` tag may target only a `main` commit whose complete workflow, including `release-audit`, succeeds.\n\n**Why:** a manually written Definition-of-Done verdict can drift away from the exact code being tagged. Making the audit a dependent CI gate ties the release claim to one immutable commit and the evidence produced for it.\n\n**Boundary:** this gate certifies the repository's documented V1 portfolio Definition of Done. It is not a production-readiness, availability, malware-detection-completeness or external security certification.\n\n## D-046 — Cross-origin browser access is denied by default in V1\n\n**Status:** Accepted for V1\n\n**Decision:** `config/cors.php` grants no allowed origins or origin patterns by default. V1 has no browser client requiring cross-origin API access. Any future trusted browser origin must be introduced explicitly with a reviewed requirement and tests.\n\n**Why:** permissive wildcard CORS expands browser-reachable surface without providing value to the current API-only V1.\n\n**Boundary:** CORS is a browser policy boundary, not an authentication control; API authorization remains server-side regardless of origin.\n\n## Deferred decisions\n''',
+          )
+
+          replace_once(
+              'docs/releases/v1.0.0.md',
+              '1. complete the Definition-of-Done review against the exact release commit;\n2. confirm the release commit has green post-merge `Application Quality` CI;\n3. create the immutable `v1.0.0` tag and GitHub release from that exact verified commit.',
+              '1. confirm the exact `main` release commit has green post-merge `Application Quality` CI, including the dependent `release-audit` job and its `V1_RELEASE_AUDIT=PASS` marker;\n2. create the immutable `v1.0.0` tag and GitHub release from that exact verified commit.',
+          )
+
+          replace_once(
+              'CHANGELOG.md',
+              '- Public security policy, architecture, security model, API map, engineering decisions, Definition of Done and evidence ledger.\n\n### Security',
+              '- Public security policy, architecture, security model, API map, engineering decisions, Definition of Done and evidence ledger.\n- Machine-checked exact-commit V1 release audit that depends on the substantive quality, secret-hygiene and real-infrastructure gates.\n- Focused production-used unit policies for lifecycle, ingestion, duplicate scope, canonical object naming and audit sanitization.\n\n### Security',
+          )
+
+          replace_once(
+              'CHANGELOG.md',
+              '- Permanent GitHub Actions permissions remain read-only and reusable actions are pinned to immutable commit SHAs.',
+              '- Permanent GitHub Actions permissions remain read-only and reusable actions are pinned to immutable commit SHAs.\n- Cross-origin browser access is denied by default; V1 grants no CORS origins until a reviewed browser-client requirement exists.',
+          )
+          PY
+
+      - name: Commit synchronized audit documentation
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md CHANGELOG.md docs/DECISIONS.md docs/DEFINITION_OF_DONE.md docs/V1_EVIDENCE.md docs/releases/v1.0.0.md
+          git diff --cached --quiet && { echo 'No changes produced'; exit 1; }
+          git commit -m 'docs: synchronize final V1 release audit'
+          git push origin HEAD:test/v1-final-dod-audit
