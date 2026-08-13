@@ -111,9 +111,15 @@ jobs:
           docker compose logs --no-color app postgres redis minio minio-init clamav
           exit 1
 
+      - name: Start real scan worker
+        run: docker compose up -d worker
+
+      - name: Exercise real ClamAV file lifecycle
+        run: bash scripts/real-clamav-e2e.sh
+
       - name: Show integration logs on failure
         if: failure()
-        run: docker compose logs --no-color app postgres redis minio minio-init clamav
+        run: docker compose logs --no-color app worker postgres redis minio minio-init clamav
 
       - name: Stop integration environment
         if: always()
