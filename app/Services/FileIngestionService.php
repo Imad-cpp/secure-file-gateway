@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Exceptions\IngestionException;
+use App\Jobs\ScanStoredFile;
 use App\Models\StoredFile;
 use App\Models\User;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -15,6 +17,10 @@ use Throwable;
 
 class FileIngestionService
 {
+    public function __construct(
+        private readonly Dispatcher $dispatcher,
+    ) {}
+
     public function ingest(User $owner, UploadedFile $upload): StoredFile
     {
         $size = $upload->getSize();
@@ -59,6 +65,7 @@ class FileIngestionService
 
         $fileId = (string) Str::uuid();
         $objectKey = $this->writeToQuarantine($owner, $upload, $fileId);
+        $cleanupQuarantine = true;
 
         try {
             $detectedMimeType = $this->detectMimeType($realPath);
@@ -114,9 +121,31 @@ class FileIngestionService
                 );
             }
 
-            return $storedFile->refresh();
+            $storedFile = $storedFile->refresh();
+
+            try {
+                $this->dispatcher->dispatch(new ScanStoredFile($storedFile->id));
+            } catch (Throwable $exception) {
+                $metadataRemoved = $this->removeMetadataAfterDispatchFailure($storedFile);
+
+                if (! $metadataRemoved) {
+                    $cleanupQuarantine = false;
+                    $this->markScanFailedAfterDispatchFailure($storedFile);
+                }
+
+                throw new IngestionException(
+                    'DEPENDENCY_UNAVAILABLE',
+                    Response::HTTP_SERVICE_UNAVAILABLE,
+                    'The malware scan queue is unavailable.',
+                    $exception,
+                );
+            }
+
+            return $storedFile;
         } catch (Throwable $exception) {
-            $this->cleanupQuarantine($objectKey);
+            if ($cleanupQuarantine) {
+                $this->cleanupQuarantine($objectKey);
+            }
 
             throw $exception;
         }
@@ -184,7 +213,33 @@ class FileIngestionService
         try {
             Storage::disk('quarantine')->delete($objectKey);
         } catch (Throwable) {
-            // Cleanup retries and orphan reconciliation belong to the hardening layer.
+            // Orphan reconciliation belongs to the hardening layer.
+        }
+    }
+
+    private function removeMetadataAfterDispatchFailure(StoredFile $storedFile): bool
+    {
+        try {
+            return (bool) $storedFile->delete();
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function markScanFailedAfterDispatchFailure(StoredFile $storedFile): void
+    {
+        try {
+            StoredFile::query()
+                ->whereKey($storedFile->id)
+                ->where('state', 'QUARANTINED')
+                ->update([
+                    'state' => 'SCAN_FAILED',
+                    'scan_engine' => 'clamav',
+                    'scan_signature' => null,
+                    'scan_completed_at' => now(),
+                ]);
+        } catch (Throwable) {
+            // Preserve the private quarantine object when metadata compensation cannot complete.
         }
     }
 

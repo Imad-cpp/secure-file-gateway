@@ -2,17 +2,29 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ScanStoredFile;
 use App\Models\StoredFile;
 use App\Models\User;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
+use RuntimeException;
 use Tests\TestCase;
 
 class FileIngestionTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Queue::fake();
+    }
 
     public function test_upload_requires_authentication(): void
     {
@@ -23,7 +35,7 @@ class FileIngestionTest extends TestCase
             ->assertJsonPath('error.code', 'UNAUTHENTICATED');
     }
 
-    public function test_allowed_file_is_written_to_private_quarantine_and_persisted(): void
+    public function test_allowed_file_is_written_to_private_quarantine_persisted_and_queued_for_scan(): void
     {
         Storage::fake('quarantine');
         $user = $this->actingUser();
@@ -47,6 +59,7 @@ class FileIngestionTest extends TestCase
         $this->assertSame(hash('sha256', 'secure gateway text fixture'), $storedFile->sha256);
         $this->assertStringNotContainsString('notes.txt', $storedFile->quarantine_object_key);
         Storage::disk('quarantine')->assertExists($storedFile->quarantine_object_key);
+        Queue::assertPushed(ScanStoredFile::class, fn (ScanStoredFile $job): bool => $job->fileId === $storedFile->id);
     }
 
     public function test_disallowed_extension_is_rejected_before_quarantine_write(): void
@@ -159,6 +172,28 @@ class FileIngestionTest extends TestCase
         ], ['Accept' => 'application/json'])
             ->assertStatus(429)
             ->assertJsonPath('error.code', 'RATE_LIMITED');
+    }
+
+    public function test_scan_queue_failure_compensates_metadata_and_quarantine(): void
+    {
+        Storage::fake('quarantine');
+        $this->actingUser();
+
+        $dispatcher = Mockery::mock(Dispatcher::class);
+        $dispatcher
+            ->shouldReceive('dispatch')
+            ->once()
+            ->andThrow(new RuntimeException('queue unavailable'));
+        $this->app->instance(Dispatcher::class, $dispatcher);
+
+        $this->post('/api/v1/files', [
+            'file' => UploadedFile::fake()->createWithContent('queue-failure.txt', 'queue failure fixture'),
+        ], ['Accept' => 'application/json'])
+            ->assertServiceUnavailable()
+            ->assertJsonPath('error.code', 'DEPENDENCY_UNAVAILABLE');
+
+        $this->assertDatabaseCount('stored_files', 0);
+        $this->assertSame([], Storage::disk('quarantine')->allFiles());
     }
 
     private function actingUser(): User

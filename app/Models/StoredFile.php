@@ -19,12 +19,16 @@ class StoredFile extends Model
         'quarantine_object_key',
         'clean_object_key',
         'state',
+        'scan_engine',
+        'scan_signature',
+        'scan_completed_at',
     ];
 
     protected function casts(): array
     {
         return [
             'size_bytes' => 'integer',
+            'scan_completed_at' => 'datetime',
         ];
     }
 
