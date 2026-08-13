@@ -396,7 +396,7 @@ Automated coverage must include, by V1 completion:
 - readiness fails closed without exposing dependency details;
 - deleted-object reconciliation never touches non-deleted rows.
 
-Current CI covers the implemented identity, ingestion, scanning, controlled-delivery, deletion, request-correlation, audit-sanitization, readiness-response and targeted-reconciliation layers with deterministic scanner test doubles plus ClamAV protocol reply parsing. A real ClamAV service exists in local Compose, but CI does not yet claim an end-to-end real-engine scan test.
+Current CI covers the implemented identity, ingestion, scanning, controlled-delivery, deletion, request-correlation, audit-sanitization, readiness-response and targeted-reconciliation layers. The permanent gate also enforces a committed dependency lock, Larastan/PHPStan level 5 without a baseline, OpenAPI route-drift validation, Composer dependency audit and full-history Gitleaks scanning. A real-container integration job boots PostgreSQL, Redis, both MinIO storage zones, ClamAV and Laravel and requires aggregate readiness to succeed. Scanner lifecycle tests still use deterministic adapters, so CI does **not** yet claim a complete real-engine upload → malware verdict → delivery scenario.
 
 ## Vulnerability reporting
 
