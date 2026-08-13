@@ -5,11 +5,14 @@ namespace Tests\Feature;
 use App\Jobs\ScanStoredFile;
 use App\Models\StoredFile;
 use App\Models\User;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
+use RuntimeException;
 use Tests\TestCase;
 
 class FileIngestionTest extends TestCase
@@ -169,6 +172,28 @@ class FileIngestionTest extends TestCase
         ], ['Accept' => 'application/json'])
             ->assertStatus(429)
             ->assertJsonPath('error.code', 'RATE_LIMITED');
+    }
+
+    public function test_scan_queue_failure_compensates_metadata_and_quarantine(): void
+    {
+        Storage::fake('quarantine');
+        $this->actingUser();
+
+        $dispatcher = Mockery::mock(Dispatcher::class);
+        $dispatcher
+            ->shouldReceive('dispatch')
+            ->once()
+            ->andThrow(new RuntimeException('queue unavailable'));
+        $this->app->instance(Dispatcher::class, $dispatcher);
+
+        $this->post('/api/v1/files', [
+            'file' => UploadedFile::fake()->createWithContent('queue-failure.txt', 'queue failure fixture'),
+        ], ['Accept' => 'application/json'])
+            ->assertServiceUnavailable()
+            ->assertJsonPath('error.code', 'DEPENDENCY_UNAVAILABLE');
+
+        $this->assertDatabaseCount('stored_files', 0);
+        $this->assertSame([], Storage::disk('quarantine')->allFiles());
     }
 
     private function actingUser(): User

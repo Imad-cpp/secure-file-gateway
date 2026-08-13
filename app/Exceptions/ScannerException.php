@@ -4,6 +4,4 @@ namespace App\Exceptions;
 
 use RuntimeException;
 
-class ScannerException extends RuntimeException
-{
-}
+class ScannerException extends RuntimeException {}
