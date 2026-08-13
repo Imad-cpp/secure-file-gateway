@@ -39,8 +39,11 @@ jobs:
           cp .env.example .env
           php artisan key:generate --force
 
-      - name: Check code style
-        run: vendor/bin/pint --test
+      - name: Diagnose code style
+        run: |
+          vendor/bin/pint
+          git diff -- app/Exceptions/ScannerException.php app/Jobs/ScanStoredFile.php app/Scanning/ClamAvMalwareScanner.php
+          exit 1
 
       - name: Run test suite
         run: php artisan test
