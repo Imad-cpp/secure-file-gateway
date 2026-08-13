@@ -76,8 +76,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Prepare local integration environment
-        run: cp .env.example .env
+      - name: Prepare writable ephemeral integration workspace
+        run: |
+          cp .env.example .env
+          mkdir -p vendor storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
+          chmod -R a+rwX vendor storage bootstrap/cache
+          chmod a+rw .env
 
       - name: Start real infrastructure and application
         run: docker compose up -d --build postgres redis minio minio-init clamav app
