@@ -37,5 +37,19 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(config('security.upload_rate_limit_per_minute'))
                 ->by($owner.'|'.$request->ip());
         });
+
+        RateLimiter::for('downloads', function (Request $request): Limit {
+            $owner = (string) ($request->user()?->getAuthIdentifier() ?? 'guest');
+
+            return Limit::perMinute(config('security.download_rate_limit_per_minute'))
+                ->by($owner.'|'.$request->ip());
+        });
+
+        RateLimiter::for('download-content', function (Request $request): Limit {
+            $file = (string) $request->route('file');
+
+            return Limit::perMinute(config('security.download_content_rate_limit_per_minute'))
+                ->by($file.'|'.$request->ip());
+        });
     }
 }

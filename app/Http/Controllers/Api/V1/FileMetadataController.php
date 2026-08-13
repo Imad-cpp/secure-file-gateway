@@ -48,6 +48,7 @@ class FileMetadataController
             'sha256' => $file->sha256,
             'state' => $file->state,
             'created_at' => $file->created_at?->toISOString(),
+            'deleted_at' => $file->deleted_at?->toISOString(),
         ];
     }
 }

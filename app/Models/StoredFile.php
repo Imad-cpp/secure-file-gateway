@@ -16,12 +16,14 @@ class StoredFile extends Model
         'detected_mime_type',
         'size_bytes',
         'sha256',
+        'deleted_sha256',
         'quarantine_object_key',
         'clean_object_key',
         'state',
         'scan_engine',
         'scan_signature',
         'scan_completed_at',
+        'deleted_at',
     ];
 
     protected function casts(): array
@@ -29,6 +31,7 @@ class StoredFile extends Model
         return [
             'size_bytes' => 'integer',
             'scan_completed_at' => 'datetime',
+            'deleted_at' => 'datetime',
         ];
     }
 
