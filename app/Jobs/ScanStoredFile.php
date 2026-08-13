@@ -3,6 +3,8 @@
 namespace App\Jobs;
 
 use App\Contracts\MalwareScanner;
+use App\Files\FileLifecyclePolicy;
+use App\Files\StorageObjectKey;
 use App\Models\StoredFile;
 use App\Scanning\MalwareScanResult;
 use App\Scanning\MalwareScanVerdict;
@@ -42,16 +44,19 @@ class ScanStoredFile implements ShouldQueue
     {
         $file = StoredFile::query()->find($this->fileId);
 
-        if (! $file || in_array($file->state, ['AVAILABLE', 'REJECTED', 'SCAN_FAILED', 'DELETED'], true)) {
+        if (! $file || FileLifecyclePolicy::isScanTerminal($file->state)) {
             return;
         }
 
-        if ($file->state === 'QUARANTINED') {
-            StoredFile::query()->whereKey($file->id)->where('state', 'QUARANTINED')->update(['state' => 'SCANNING']);
+        if ($file->state === FileLifecyclePolicy::QUARANTINED) {
+            StoredFile::query()
+                ->whereKey($file->id)
+                ->where('state', FileLifecyclePolicy::QUARANTINED)
+                ->update(['state' => FileLifecyclePolicy::SCANNING]);
             $file->refresh();
         }
 
-        if ($file->state !== 'SCANNING') {
+        if (! FileLifecyclePolicy::canScan($file->state) || $file->state !== FileLifecyclePolicy::SCANNING) {
             return;
         }
 
@@ -65,8 +70,11 @@ class ScanStoredFile implements ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        StoredFile::query()->whereKey($this->fileId)->whereIn('state', ['QUARANTINED', 'SCANNING'])->update([
-            'state' => 'SCAN_FAILED',
+        StoredFile::query()->whereKey($this->fileId)->whereIn('state', [
+            FileLifecyclePolicy::QUARANTINED,
+            FileLifecyclePolicy::SCANNING,
+        ])->update([
+            'state' => FileLifecyclePolicy::SCAN_FAILED,
             'scan_engine' => 'clamav',
             'scan_signature' => null,
             'scan_completed_at' => now(),
@@ -76,7 +84,7 @@ class ScanStoredFile implements ShouldQueue
     private function promoteCleanFile(StoredFile $file, MalwareScanResult $result): void
     {
         $quarantineKey = $this->requireQuarantineKey($file);
-        $cleanKey = $file->owner_id.'/'.$file->id;
+        $cleanKey = StorageObjectKey::forOwnerFile((string) $file->owner_id, (string) $file->id);
         $input = Storage::disk('quarantine')->readStream($quarantineKey);
 
         if (! is_resource($input)) {
@@ -94,13 +102,16 @@ class ScanStoredFile implements ShouldQueue
         }
 
         try {
-            $updated = StoredFile::query()->whereKey($file->id)->where('state', 'SCANNING')->update([
-                'state' => 'AVAILABLE',
-                'clean_object_key' => $cleanKey,
-                'scan_engine' => 'clamav',
-                'scan_signature' => $result->signature,
-                'scan_completed_at' => now(),
-            ]);
+            $updated = StoredFile::query()
+                ->whereKey($file->id)
+                ->where('state', FileLifecyclePolicy::SCANNING)
+                ->update([
+                    'state' => FileLifecyclePolicy::AVAILABLE,
+                    'clean_object_key' => $cleanKey,
+                    'scan_engine' => 'clamav',
+                    'scan_signature' => $result->signature,
+                    'scan_completed_at' => now(),
+                ]);
 
             if ($updated !== 1) {
                 throw new RuntimeException('The file lifecycle changed during clean promotion.');
@@ -119,12 +130,15 @@ class ScanStoredFile implements ShouldQueue
     private function rejectUnsafeFile(StoredFile $file, MalwareScanResult $result): void
     {
         $quarantineKey = $this->requireQuarantineKey($file);
-        $updated = StoredFile::query()->whereKey($file->id)->where('state', 'SCANNING')->update([
-            'state' => 'REJECTED',
-            'scan_engine' => 'clamav',
-            'scan_signature' => $result->signature,
-            'scan_completed_at' => now(),
-        ]);
+        $updated = StoredFile::query()
+            ->whereKey($file->id)
+            ->where('state', FileLifecyclePolicy::SCANNING)
+            ->update([
+                'state' => FileLifecyclePolicy::REJECTED,
+                'scan_engine' => 'clamav',
+                'scan_signature' => $result->signature,
+                'scan_completed_at' => now(),
+            ]);
 
         if ($updated !== 1) {
             throw new RuntimeException('The file lifecycle changed during unsafe rejection.');
