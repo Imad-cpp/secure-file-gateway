@@ -20,6 +20,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      minio-init:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_started
 
   worker:
     build:
