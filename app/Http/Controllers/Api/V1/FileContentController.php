@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Exceptions\FileLifecycleException;
+use App\Files\FileLifecyclePolicy;
 use App\Models\StoredFile;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
@@ -15,7 +16,7 @@ class FileContentController
     {
         $storedFile = StoredFile::query()->findOrFail($file);
 
-        if ($storedFile->state !== 'AVAILABLE' || ! is_string($storedFile->clean_object_key) || $storedFile->clean_object_key === '') {
+        if (! FileLifecyclePolicy::canIssueDownload($storedFile->state) || ! is_string($storedFile->clean_object_key) || $storedFile->clean_object_key === '') {
             throw new FileLifecycleException(
                 'FILE_NOT_AVAILABLE',
                 Response::HTTP_CONFLICT,
