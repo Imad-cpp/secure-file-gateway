@@ -9,7 +9,7 @@
 - Opaque public identifiers.
 - Server-owned lifecycle states.
 - Error responses use stable machine-readable codes.
-- No endpoint returns a quarantine object URL.
+- No endpoint returns quarantine or clean object keys.
 
 This document defines the V1 contract alongside implementation. Exact response envelopes may be refined when the OpenAPI specification is written, but security semantics should not drift silently.
 
@@ -21,17 +21,19 @@ Implemented:
 - `POST /api/v1/auth/login`;
 - `POST /api/v1/auth/logout`;
 - `GET /api/v1/me`;
-- `POST /api/v1/files` through the `QUARANTINED` state;
+- `POST /api/v1/files` with quarantine + scan-job handoff;
+- asynchronous scan-driven transitions through `SCANNING`, `AVAILABLE`, `REJECTED` and `SCAN_FAILED`;
 - `GET /api/v1/files`;
 - `GET /api/v1/files/{file}`.
 
 Still planned for later layers:
 
-- scan job enqueue and scan-driven lifecycle transitions;
 - `DELETE /api/v1/files/{file}`;
-- `POST /api/v1/files/{file}/download`.
+- `POST /api/v1/files/{file}/download`;
+- audit/readiness hardening;
+- final OpenAPI contract.
 
-No implemented endpoint exposes quarantine object keys, clean object keys or cross-user duplicate information.
+No implemented endpoint exposes quarantine object keys, clean object keys, raw scanner output, internal malware signatures or cross-user duplicate information.
 
 ## Authentication
 
@@ -80,13 +82,13 @@ Returns minimal current-user metadata.
 
 ### `POST /api/v1/files`
 
-**Status:** Implemented through quarantine. Malware scanning is not implemented yet.
+**Status:** Implemented through scan-job handoff.
 
 Accepts one `file` field as `multipart/form-data`.
 
 **Auth required + upload rate limit.**
 
-Implemented validation/processing order:
+Implemented request/processing order:
 
 1. authentication;
 2. upload rate limit;
@@ -99,9 +101,10 @@ Implemented validation/processing order:
 9. SHA-256 calculation;
 10. per-owner duplicate check;
 11. file-record persistence with owner + SHA-256 database uniqueness;
-12. return `202 Accepted` with state `QUARANTINED`.
+12. scan-job dispatch to the `scans` queue;
+13. return `202 Accepted` with state `QUARANTINED`.
 
-The scanning layer will later enqueue scan work and advance the lifecycle from `QUARANTINED` to `SCANNING`.
+If queue dispatch fails after metadata persistence, the normal compensation path removes the new metadata row and quarantine object. If metadata compensation cannot complete, quarantine is preserved rather than deleting bytes that an existing row may still reference.
 
 Implemented V1 allowlist:
 
@@ -130,13 +133,7 @@ Success response shape:
 }
 ```
 
-The response deliberately omits owner IDs and storage keys.
-
-Cleanup semantics in the current ingestion layer:
-
-- disallowed extension and oversize failures occur before quarantine write;
-- MIME mismatch, same-owner duplicate rejection and metadata persistence failure remove the newly written quarantine object on the normal failure path;
-- cleanup reconciliation for an unavailable storage backend remains hardening work.
+The response deliberately omits owner IDs, storage keys and internal scanner metadata.
 
 Duplicate semantics:
 
@@ -156,6 +153,7 @@ Current behavior:
 
 - ownership is scoped in the database query;
 - pagination defaults to 20 items;
+- state reflects asynchronous scan progress;
 - no global file search exists.
 
 State filtering remains planned for lifecycle refinement.
@@ -164,7 +162,7 @@ State filtering remains planned for lifecycle refinement.
 
 **Status:** Implemented.
 
-Returns metadata for one owned file.
+Returns metadata for one owned file and is the polling surface for asynchronous scan state.
 
 **Auth required + ownership policy.**
 
@@ -175,6 +173,8 @@ The response does not expose:
 - owner ID;
 - quarantine object key;
 - clean object key;
+- scanner engine;
+- malware signature;
 - raw scanner output;
 - storage credentials.
 
@@ -186,9 +186,7 @@ Deletes/revokes an owned file resource according to lifecycle policy.
 
 **Auth required + ownership policy.**
 
-Deletion behavior must be idempotent from the API consumer's perspective where practical.
-
-Implementation must define cleanup behavior for quarantine/clean objects and audit the deletion outcome.
+Deletion behavior must be idempotent from the API consumer's perspective where practical. Implementation must define cleanup behavior for quarantine/clean objects and audit the deletion outcome.
 
 ### `POST /api/v1/files/{file}/download`
 
@@ -207,9 +205,19 @@ Planned behavior:
 
 ## Scan status
 
-The file resource itself is the source of truth for user-visible scan state. A separate public `/scans` resource is not planned for V1.
+The file resource itself is the source of truth for user-visible scan state. There is no normal-user `/scans` resource in V1.
 
-Current ingestion stops at `QUARANTINED`. Once scanning exists, clients poll `GET /api/v1/files/{file}` until the file reaches a terminal state or becomes `AVAILABLE`.
+Implemented scan behavior:
+
+1. upload returns `QUARANTINED`;
+2. the queued job claims `SCANNING`;
+3. the ClamAV adapter streams private quarantine bytes using `INSTREAM`;
+4. clean result copies bytes into private clean storage, then transitions to `AVAILABLE`;
+5. malware detection transitions to `REJECTED` without creating a clean object;
+6. scanner/worker errors are retried and final job failure transitions to `SCAN_FAILED`;
+7. terminal states are not scanned again.
+
+Normal API consumers see only the lifecycle state. Scanner signatures and engine details are internal metadata.
 
 ## Audit endpoint
 
@@ -229,18 +237,18 @@ Process liveness only. Must not expose environment details.
 
 Dependency readiness suitable for local/container orchestration.
 
-Response may summarize dependency state without credentials, host secrets, bucket names or internal stack traces.
+Current behavior remains fail-closed (`503`) until concrete PostgreSQL, Redis, object-storage and scanner probes are implemented. Future response details must not disclose credentials, bucket names, internal stack traces or sensitive topology.
 
 ## Lifecycle states
 
 Externally readable V1 states:
 
-- `QUARANTINED` — currently emitted by successful ingestion;
-- `SCANNING` — planned scanning layer;
-- `AVAILABLE` — planned after a clean scanner result;
-- `REJECTED` — planned unsafe result;
-- `SCAN_FAILED` — planned scanner failure/error;
-- `DELETED` — planned lifecycle work.
+- `QUARANTINED` — accepted into private quarantine and queued;
+- `SCANNING` — scan job has claimed processing;
+- `AVAILABLE` — clean result and private clean-storage promotion completed;
+- `REJECTED` — malware/unsafe result;
+- `SCAN_FAILED` — final scan/worker failure;
+- `DELETED` — planned controlled-lifecycle work.
 
 Clients cannot submit a desired state.
 
@@ -257,7 +265,7 @@ Stable error envelope:
 }
 ```
 
-Implemented error codes relevant to the current API:
+Implemented error codes relevant to the current HTTP API:
 
 - `UNAUTHENTICATED`;
 - `VALIDATION_FAILED`;
@@ -266,15 +274,17 @@ Implemented error codes relevant to the current API:
 - `FILE_TYPE_NOT_ALLOWED`;
 - `FILE_TYPE_MISMATCH`;
 - `DUPLICATE_FILE`;
-- `DEPENDENCY_UNAVAILABLE` for ingestion storage/metadata dependency failures.
+- `DEPENDENCY_UNAVAILABLE` for storage, metadata or queue-handoff failures.
 
-Reserved for later layers:
+Reserved/next-layer HTTP errors:
 
 - `FORBIDDEN` where disclosure is acceptable;
 - `FILE_NOT_AVAILABLE`;
-- `SCAN_FAILED`.
+- explicit delivery/deletion errors as OpenAPI is frozen.
 
-User-facing messages must not expose object keys, filesystem paths, stack traces or whether another user's matching hash exists.
+`SCAN_FAILED` is primarily a resource state rather than an immediate upload HTTP error because scanning is asynchronous.
+
+User-facing messages must not expose object keys, filesystem paths, stack traces, scanner signatures or whether another user's matching hash exists.
 
 ## HTTP semantics
 
@@ -284,13 +294,13 @@ User-facing messages must not expose object keys, filesystem paths, stack traces
 | login success | `200` |
 | logout success | `204` |
 | asynchronous upload accepted | `202` |
-| metadata read success | `200` |
+| metadata / scan-state read success | `200` |
 | invalid input / file policy rejection | `422` |
 | unauthenticated | `401` |
 | unauthorized/not-owned file resource | `404` |
 | per-owner duplicate | `409` |
 | rate limit | `429` |
-| temporary dependency failure | `503` |
+| temporary dependency / queue handoff failure | `503` |
 | download capability issued | `200` planned |
 | deletion success | `204` or idempotent equivalent planned |
 
