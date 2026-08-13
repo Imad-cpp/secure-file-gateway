@@ -1,0 +1,141 @@
+name: Sync V1 Evidence Docs
+
+on:
+  push:
+    branches:
+      - chore/v1-contract-evidence
+    paths:
+      - .github/workflows/sync-v1-docs.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Apply guarded documentation updates
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement target, found {count}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'README.md',
+              '> **Status:** Core V1 security hardening is implemented. Authenticated uploads are validated, isolated in private quarantine, queued for ClamAV scanning and advanced through fail-closed lifecycle states. Clean files are promoted into private clean storage and can be accessed only through short-lived application-signed capabilities issued to their owner. Deletion revokes delivery and cleans private objects with retry-safe tombstone semantics. Server-generated request correlation, sanitized audit events, concrete dependency readiness probes, targeted deleted-object reconciliation and a vulnerability-reporting policy are now in place. Final OpenAPI/release evidence and remaining CI/release hardening are still in progress; no production-readiness claim is made.',
+              '> **Status:** The V1 contract and core release-evidence gates are now machine checked. In addition to the implemented security lifecycle, the repository has an OpenAPI 3.0.3 contract with route-drift validation, a committed Composer lockfile, Larastan static analysis without a baseline, full-history secret scanning and a real-container readiness gate covering PostgreSQL, Redis, MinIO, ClamAV and Laravel. A full real-engine upload → verdict → delivery scenario, final release notes/license review and the tagged V1 release remain; no production-readiness claim is made.'
+          )
+
+          replace_once(
+              'README.md',
+              '- [Security Policy](SECURITY.md) — private vulnerability-reporting route, supported-version boundary and responsible-testing guidance.',
+              '- [Security Policy](SECURITY.md) — private vulnerability-reporting route, supported-version boundary and responsible-testing guidance.\n- [OpenAPI Contract](openapi.yaml) — machine-checked OpenAPI 3.0.3 description of the public V1 HTTP surface.\n- [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.'
+          )
+
+          replace_once(
+              'README.md',
+              'Pull requests and pushes to `main` run the `Application Quality` workflow. The gate validates the Composer manifest, installs dependencies, boots the application, enforces Pint formatting, runs the complete feature/unit test suite and audits resolved Composer dependencies.',
+              'Pull requests and pushes to `main` run three independent `Application Quality` jobs. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations and requires `/health/ready` to become `ready` before teardown.'
+          )
+
+          replace_once(
+              'README.md',
+              'GitHub Actions permissions are read-only, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs.',
+              'GitHub Actions permissions are read-only for the permanent quality workflow, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs. The real-container readiness job proves dependency wiring and readiness behavior; it does **not** yet claim a complete real-ClamAV upload/verdict/delivery path. See `docs/V1_EVIDENCE.md` for the evidence boundary.'
+          )
+
+          replace_once(
+              'README.md',
+              '8. **V1 evidence + release hardening** — OpenAPI, reproducible integration evidence, remaining CI hardening and tagged release. **← next**',
+              '8. **V1 contract + evidence hardening** — OpenAPI route drift, locked dependencies, static analysis, secret hygiene and real dependency readiness. **✓**\n9. **Release-candidate evidence** — real-engine end-to-end check, reproducible demo, release notes/license decision and tagged V1. **← next**'
+          )
+
+          replace_once(
+              'docs/API_MAP.md',
+              'This document defines the V1 contract alongside implementation. Exact response envelopes may be refined when the OpenAPI specification is written, but security semantics should not drift silently.',
+              'This document defines the V1 contract alongside implementation. `openapi.yaml` now provides the machine-readable OpenAPI 3.0.3 contract, and CI compares its documented methods/paths with the Laravel route table so public route drift fails the quality gate.'
+          )
+
+          replace_once(
+              'docs/API_MAP.md',
+              'Still planned for the release-evidence layer:\n\n- final OpenAPI contract and drift validation;\n- remaining CI/release hardening and reproducible integration evidence;\n- tagged V1 release.',
+              'Implemented release-evidence controls now also include:\n\n- OpenAPI 3.0.3 contract parsing and public route/method drift validation;\n- committed Composer dependency locking and strict lock validation;\n- Larastan/PHPStan static analysis without a baseline;\n- full-history secret scanning;\n- real-container dependency readiness across PostgreSQL, Redis, both MinIO storage zones and ClamAV.\n\nStill planned before the tagged V1 release: a full real-engine upload/verdict/delivery evidence path, reproducible demo/release notes and final release-candidate review.'
+          )
+
+          replace_once(
+              'docs/API_MAP.md',
+              '## OpenAPI requirement\n\nBefore V1 release, `openapi.yaml` must define:\n\n- every public endpoint and the temporary signed-content capability route;\n- authentication scheme;\n- request/response schemas;\n- error envelope;\n- lifecycle enum;\n- upload content type and size documentation;\n- signed-capability semantics and expiry;\n- request-correlation response header;\n- health response semantics;\n- example responses;\n- authorization expectations where representable.\n\nOpenAPI and implementation must be checked for drift in CI or by an explicit test/review step.',
+              '## OpenAPI contract\n\n`openapi.yaml` is implemented as OpenAPI 3.0.3 and covers every current public V1 operation, the temporary signed-content capability route, bearer/capability security semantics, lifecycle enum, upload constraints, request-correlation header, error/health schemas and controlled-delivery behavior.\n\n`OpenApiContractTest` parses the specification through `league/openapi-psr7-validator` and requires its GET/POST/DELETE path set to match the Laravel public V1 + health route table exactly. Schema-level response conformance beyond the current contract/route checks can be expanded in the release-candidate layer.'
+          )
+
+          replace_once(
+              'docs/ARCHITECTURE.md',
+              '- **API documentation:** OpenAPI is required before V1 is considered complete.',
+              '- **API contract:** `openapi.yaml` is OpenAPI 3.0.3 and is parsed plus route-drift checked in CI.'
+          )
+
+          replace_once(
+              'docs/ARCHITECTURE.md',
+              'The public endpoint returns only overall `ready` or `not_ready`; dependency-specific failures stay internal.',
+              'The public endpoint returns only overall `ready` or `not_ready`; dependency-specific failures stay internal. The permanent integration CI boots PostgreSQL, Redis, MinIO, ClamAV and the non-root Laravel application, applies real PostgreSQL migrations and requires this readiness path to become healthy before teardown. This is dependency/readiness evidence, not yet a full real-engine file-processing E2E claim.'
+          )
+
+          replace_once(
+              'docs/SECURITY_MODEL.md',
+              'Current CI covers the implemented identity, ingestion, scanning, controlled-delivery, deletion, request-correlation, audit-sanitization, readiness-response and targeted-reconciliation layers with deterministic scanner test doubles plus ClamAV protocol reply parsing. A real ClamAV service exists in local Compose, but CI does not yet claim an end-to-end real-engine scan test.',
+              'Current CI covers the implemented identity, ingestion, scanning, controlled-delivery, deletion, request-correlation, audit-sanitization, readiness-response and targeted-reconciliation layers. The permanent gate also enforces a committed dependency lock, Larastan/PHPStan level 5 without a baseline, OpenAPI route-drift validation, Composer dependency audit and full-history Gitleaks scanning. A real-container integration job boots PostgreSQL, Redis, both MinIO storage zones, ClamAV and Laravel and requires aggregate readiness to succeed. Scanner lifecycle tests still use deterministic adapters, so CI does **not** yet claim a complete real-engine upload → malware verdict → delivery scenario.'
+          )
+
+          replace_once(
+              'docs/DECISIONS.md',
+              '## Deferred decisions',
+              '''## D-037 — OpenAPI 3.0.3 is a machine-checked V1 contract\n\n**Status:** Accepted for V1\n\n**Decision:** maintain `openapi.yaml` as OpenAPI 3.0.3 and fail CI when its public GET/POST/DELETE path set drifts from Laravel's V1 + health route table.\n\n**Why:** the API contract should be reviewable by people and tooling rather than existing only as prose. OpenAPI 3.0.3 matches the selected PHP validation toolchain.\n\n## D-038 — Composer dependency resolution is committed\n\n**Status:** Accepted for V1\n\n**Decision:** commit `composer.lock`, validate it strictly and install the locked graph in CI.\n\n**Why:** release evidence must be reproducible and should not silently resolve a different dependency graph on every run.\n\n## D-039 — Static analysis has no baseline\n\n**Status:** Accepted for V1\n\n**Decision:** run Larastan/PHPStan at level 5 across `app` and `routes` without an error baseline.\n\n**Why:** the repository is small enough to fix current typing findings instead of institutionalizing known debt as an initial baseline.\n\n## D-040 — Secret hygiene scans full Git history\n\n**Status:** Accepted for V1\n\n**Decision:** a separate Gitleaks job checks full repository history. The action is pinned to an immutable commit and the permanent workflow retains read-only repository permissions.\n\n**Boundary:** a passing pattern scanner reduces risk but is not mathematical proof that arbitrary sensitive information cannot exist.\n\n## D-041 — Real integration evidence proves readiness, not full scanning E2E\n\n**Status:** Accepted for V1\n\n**Decision:** CI boots the non-root Laravel app with PostgreSQL, Redis, MinIO, bucket initialization and ClamAV, applies real PostgreSQL migrations, and requires `/health/ready` to become `ready`.\n\n**Evidence boundary:** this proves dependency wiring and concrete readiness checks against real containers. Until a deterministic harmless test-signature flow is added, it does not claim real-engine upload → verdict → controlled-delivery E2E coverage.\n\n## Deferred decisions'''
+          )
+
+          replace_once(
+              'docs/DEFINITION_OF_DONE.md',
+              '- health responses remain aggregate-only and do not reveal dependency-specific failures.',
+              '- health responses remain aggregate-only and do not reveal dependency-specific failures.\n\n**Current API-contract status:** `openapi.yaml` now covers the public V1 + signed capability + health surface, is parsed by the PHP OpenAPI validator, and has an automated route/method drift check against Laravel.'
+          )
+
+          replace_once(
+              'docs/DEFINITION_OF_DONE.md',
+              'At least one CI/local integration path must exercise the real database, Redis queue coordination and S3-compatible storage boundary.\n\nThe malware scanner may use a deterministic test adapter in ordinary CI, but a documented real-scanner integration check is required before the project is presented as demonstrating operational malware scanning.',
+              'At least one CI/local integration path must exercise the real database, Redis queue coordination and S3-compatible storage boundary.\n\n**Current integration status:** CI boots PostgreSQL, Redis, MinIO, ClamAV and the non-root Laravel application, applies the real PostgreSQL migrations and requires `/health/ready` to verify every dependency. This satisfies the real dependency/readiness boundary.\n\nThe malware lifecycle suite may use deterministic test adapters in ordinary tests, but a full real-engine file-processing check is still required before the project claims end-to-end operational malware-scanning evidence.'
+          )
+
+          replace_once(
+              'docs/DEFINITION_OF_DONE.md',
+              'The current `Application Quality` gate already validates the Composer manifest, installs dependencies, boots the app, runs Pint, executes the full PHPUnit suite and audits resolved Composer dependencies. Lockfile discipline, static analysis, spec validation and explicit secret-hygiene automation remain release-hardening work.',
+              'The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure/readiness job. The remaining release evidence is the full real-engine file-processing scenario plus final demo/release artifacts—not the core quality gates listed above.'
+          )
+          PY
+
+      - name: Commit synchronized docs through GitHub API
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for path in README.md docs/API_MAP.md docs/ARCHITECTURE.md docs/SECURITY_MODEL.md docs/DECISIONS.md docs/DEFINITION_OF_DONE.md; do
+            sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${path}?ref=${GITHUB_REF_NAME}" --jq .sha)"
+            base64 -w 0 "$path" > /tmp/content.b64
+            jq -n \
+              --arg message 'docs: sync V1 contract evidence' \
+              --arg branch "$GITHUB_REF_NAME" \
+              --arg sha "$sha" \
+              --rawfile content /tmp/content.b64 \
+              '{message: $message, branch: $branch, sha: $sha, content: $content}' \
+              > /tmp/payload.json
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${path}" --input /tmp/payload.json >/dev/null
+          done
