@@ -70,17 +70,17 @@ Any expansion requires explicit security review and tests.
 
 **Status:** Accepted for V1
 
-**Decision:** SHA-256 detects duplicates within the same authenticated owner's files. V1 does not expose cross-user duplicate information or perform cross-user physical deduplication.
+**Decision:** SHA-256 detects duplicates within the same authenticated owner's active files. V1 does not expose cross-user duplicate information or perform cross-user physical deduplication.
 
-**Implementation:** owner + SHA-256 uniqueness is enforced in PostgreSQL in addition to the application pre-check, protecting the boundary from concurrent duplicate races.
+**Implementation:** owner + active SHA-256 uniqueness is enforced in PostgreSQL in addition to the application pre-check, protecting the boundary from concurrent duplicate races.
 
 ## D-010 — Short-lived signed delivery
 
 **Status:** Accepted for V1
 
-**Decision:** clean objects remain private. The application issues short-lived signed access only after authentication, authorization and lifecycle checks.
+**Decision:** clean objects remain private. The application issues short-lived signed access only after authentication, ownership authorization and lifecycle checks.
 
-**Known limitation:** a valid signed URL is a temporary bearer capability and can be shared until it expires.
+**Known limitation:** a valid signed URL is a temporary bearer capability and can be shared until it expires unless current lifecycle state revokes delivery first.
 
 ## D-011 — Bearer-token authentication for V1
 
@@ -124,13 +124,13 @@ A future frontend can use a different Sanctum mode without changing file ownersh
 
 **Decision:** user and stored-file primary/public identifiers use UUIDs rather than sequential integers.
 
-**Boundary:** UUIDs are not authorization. Every resource operation still requires explicit ownership checks.
+**Boundary:** UUIDs are not authorization. Every protected resource operation still requires explicit authorization or a valid temporary capability.
 
 ## D-017 — Foreign-owned file identifiers fail as not found
 
 **Status:** Accepted for V1
 
-**Decision:** when an authenticated user supplies another user's file identifier, owner-policy denial is rendered as `404` rather than a distinct `403` ownership signal.
+**Decision:** when an authenticated user supplies another user's file identifier to an owner-protected operation, policy denial is rendered as `404` rather than a distinct `403` ownership signal.
 
 **Why:** this reduces resource-enumeration leakage while preserving normal owner access semantics.
 
@@ -182,8 +182,6 @@ A future frontend can use a different Sanctum mode without changing file ownersh
 
 **Network rule:** the local Compose configuration does not publish TCP/3310 to the host. `clamd` is reachable only inside the Compose network.
 
-**Why:** the `clamd` TCP protocol itself is not an authenticated public API and must not be treated as an Internet-facing boundary.
-
 ## D-024 — Scan retries and timeouts are bounded
 
 **Status:** Accepted for V1
@@ -200,23 +198,17 @@ A future frontend can use a different Sanctum mode without changing file ownersh
 
 If the lifecycle update fails after the clean object is created, the normal compensation path removes the newly created clean object and the job fails closed.
 
-**Why:** `AVAILABLE` must never point at an object that has not completed clean-storage promotion.
-
 ## D-026 — Unsafe and final-failure retention semantics differ
 
 **Status:** Accepted for V1
 
 **Decision:** an unsafe verdict transitions to `REJECTED` and never creates a clean object. The normal path deletes the quarantined unsafe object and clears its quarantine key after successful deletion. A final scanner/job failure transitions to `SCAN_FAILED` and keeps the quarantine object private for operational reconciliation.
 
-**Why:** a known unsafe verdict and an uncertain infrastructure failure are different operational states. Neither is downloadable.
-
 ## D-027 — Scanner metadata is internal
 
 **Status:** Accepted for V1
 
 **Decision:** `scan_engine`, `scan_signature` and scan completion metadata may be stored for operations/tests but normal file APIs expose only user-safe lifecycle state.
-
-**Why:** raw/internal scanner details are not required for normal-user decisions and should not become an accidental disclosure surface.
 
 ## D-028 — Queue handoff uses compensating cleanup
 
@@ -228,13 +220,67 @@ If metadata compensation itself cannot complete, the quarantine object is delibe
 
 **Known boundary:** V1 uses explicit compensation rather than a transactional outbox. Orphan/outbox reconciliation remains a possible hardening improvement if deployment requirements justify it.
 
+## D-029 — Delivery uses an application-signed capability
+
+**Status:** Accepted for V1
+
+**Decision:** the authenticated owner does not receive a public object URL. `POST /api/v1/files/{file}/download` issues a temporary signed URL to an application content route.
+
+The issuance endpoint requires authentication, ownership, `AVAILABLE` and a clean object key. The signed content route then validates signature + expiry and re-checks current `AVAILABLE` before streaming private clean bytes.
+
+**Why:** this keeps object storage private, avoids binding client delivery to an internal S3/MinIO endpoint, and lets current lifecycle state revoke an already-issued capability.
+
+**Known limitation:** after issuance the signed URL itself is a bearer capability; possession is sufficient until expiry unless lifecycle state changes first.
+
+## D-030 — Download capability lifetime and rate limits are explicit
+
+**Status:** Accepted for V1
+
+**Decision:** default signed capability lifetime is 300 seconds. Capability issuance is limited to 20 requests/minute per owner + IP, and signed content is limited to 60 requests/minute per file ID + IP.
+
+**Configuration:**
+
+- `DOWNLOAD_URL_TTL_SECONDS=300`;
+- `DOWNLOAD_RATE_LIMIT_PER_MINUTE=20`;
+- `DOWNLOAD_CONTENT_RATE_LIMIT_PER_MINUTE=60`.
+
+Capability and content responses use private/no-store semantics. Signed query strings are prohibited from audit/log payloads.
+
+## D-031 — Deletion uses a durable tombstone
+
+**Status:** Accepted for V1
+
+**Decision:** owner deletion transitions the row to `DELETED` rather than hard-deleting metadata immediately.
+
+On the first transition:
+
+- active `sha256` is copied into internal `deleted_sha256`;
+- active `sha256` becomes null;
+- `deleted_at` is recorded.
+
+**Why:** a durable terminal state makes retries/revocation explicit, preserves lifecycle evidence and releases the owner + active SHA-256 uniqueness slot so the same owner can upload identical bytes again later.
+
+Normal user APIs may expose `deleted_at`, but do not expose `deleted_sha256`.
+
+## D-032 — Deletion revokes before storage cleanup and retries partial failure
+
+**Status:** Accepted for V1
+
+**Decision:** deletion commits `DELETED` under a database row lock before removing referenced quarantine/clean objects. Object keys are cleared only after successful storage cleanup.
+
+If storage cleanup fails, the API returns `DEPENDENCY_UNAVAILABLE`; the row remains `DELETED` and unresolved object keys remain for another DELETE retry.
+
+**Security consequence:** signed delivery requires current `AVAILABLE`, so already-issued capabilities stop serving content as soon as the tombstone commits, even if physical object cleanup is still pending.
+
+**Known boundary:** PostgreSQL and object storage do not share a transaction. Automated reconciliation for abandoned cleanup remains hardening work.
+
 ## Deferred decisions
 
 The following are intentionally not frozen yet:
 
-- download/general API rate-limit numbers beyond the implemented authentication and upload throttles;
-- signed URL lifetime;
-- retention/cleanup durations;
+- general authenticated API-read rate limits beyond the implemented auth/upload/delivery surfaces;
+- retention duration for deleted tombstones and failed-scan quarantine;
+- automated orphan/deletion reconciliation policy;
 - production hosting provider;
 - project license;
 - admin/auditor role in the public demo;
