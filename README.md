@@ -2,7 +2,7 @@
 
 Security-focused file upload and delivery API built around **validation, quarantine, asynchronous malware scanning, controlled delivery, deletion and auditability**.
 
-> **Status:** Core V1 security hardening is implemented. Authenticated uploads are validated, isolated in private quarantine, queued for ClamAV scanning and advanced through fail-closed lifecycle states. Clean files are promoted into private clean storage and can be accessed only through short-lived application-signed capabilities issued to their owner. Deletion revokes delivery and cleans private objects with retry-safe tombstone semantics. Server-generated request correlation, sanitized audit events, concrete dependency readiness probes, targeted deleted-object reconciliation and a vulnerability-reporting policy are now in place. Final OpenAPI/release evidence and remaining CI/release hardening are still in progress; no production-readiness claim is made.
+> **Status:** The V1 contract and core release-evidence gates are now machine checked. In addition to the implemented security lifecycle, the repository has an OpenAPI 3.0.3 contract with route-drift validation, a committed Composer lockfile, Larastan static analysis without a baseline, full-history secret scanning and a real-container readiness gate covering PostgreSQL, Redis, MinIO, ClamAV and Laravel. A full real-engine upload → verdict → delivery scenario, final release notes/license review and the tagged V1 release remain; no production-readiness claim is made.
 
 ## Why this project exists
 
@@ -296,6 +296,8 @@ State transitions are server-controlled. Clients can request deletion but cannot
 - [Engineering Decisions](docs/DECISIONS.md) — accepted choices and intentionally deferred decisions.
 - [Definition of Done](docs/DEFINITION_OF_DONE.md) — the quality/security bar required before V1 is considered portfolio-ready.
 - [Security Policy](SECURITY.md) — private vulnerability-reporting route, supported-version boundary and responsible-testing guidance.
+- [OpenAPI Contract](openapi.yaml) — machine-checked OpenAPI 3.0.3 description of the public V1 HTTP surface.
+- [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.
 
 ## V1 API surface
 
@@ -323,11 +325,11 @@ Uploads return `202 Accepted`. Clients poll the owned file resource as asynchron
 
 ## Quality gate
 
-Pull requests and pushes to `main` run the `Application Quality` workflow. The gate validates the Composer manifest, installs dependencies, boots the application, enforces Pint formatting, runs the complete feature/unit test suite and audits resolved Composer dependencies.
+Pull requests and pushes to `main` run three independent `Application Quality` jobs. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations and requires `/health/ready` to become `ready` before teardown.
 
 Coverage includes identity/ownership controls, ingestion policy, MIME mismatch rejection, quarantine cleanup, SHA-256 duplicate isolation, upload throttling, queue handoff compensation, scan-job dispatch, clean promotion, unsafe rejection, fail-closed scanner errors, terminal-state idempotency, ClamAV reply parsing, download ownership, non-available denial, signed-URL tampering/expiry, private streaming, deletion idempotency, capability revocation, duplicate-hash release after deletion, request-ID spoofing resistance, error-response correlation, audit metadata sanitization, failed-login audit hygiene, readiness response semantics and deleted-object reconciliation safety.
 
-GitHub Actions permissions are read-only, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs.
+GitHub Actions permissions are read-only for the permanent quality workflow, checkout credentials are not persisted, and reusable actions are pinned to full commit SHAs. The real-container readiness job proves dependency wiring and readiness behavior; it does **not** yet claim a complete real-ClamAV upload/verdict/delivery path. See `docs/V1_EVIDENCE.md` for the evidence boundary.
 
 ## What V1 will prove
 
@@ -359,7 +361,8 @@ The goal is to make the core security boundary **small enough to understand and 
 5. **Scanning pipeline** — queue worker, scanner adapter and fail-closed state transitions. **✓**
 6. **Controlled delivery** — signed capability, private streaming and deletion behavior. **✓**
 7. **Security hardening** — request correlation, audit events, dependency readiness, targeted reconciliation and vulnerability reporting. **✓**
-8. **V1 evidence + release hardening** — OpenAPI, reproducible integration evidence, remaining CI hardening and tagged release. **← next**
+8. **V1 contract + evidence hardening** — OpenAPI route drift, locked dependencies, static analysis, secret hygiene and real dependency readiness. **✓**
+9. **Release-candidate evidence** — real-engine end-to-end check, reproducible demo, release notes/license decision and tagged V1. **← next**
 
 ## Repository principle
 
