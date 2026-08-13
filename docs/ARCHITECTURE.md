@@ -76,7 +76,7 @@ Owned lifecycle resource
 - **Request correlation:** server-generated UUID propagated to response headers and internal audit rows.
 - **Readiness:** concrete PostgreSQL, Redis, private-storage and ClamAV probes with a minimal public response.
 - **Local environment:** Docker Compose with API, dedicated scan worker, PostgreSQL, Redis, MinIO and internal-only ClamAV.
-- **API documentation:** OpenAPI is required before V1 is considered complete.
+- **API contract:** `openapi.yaml` is OpenAPI 3.0.3 and is parsed plus route-drift checked in CI.
 
 ## Core modules
 
@@ -342,7 +342,7 @@ A transactional outbox or immutable external forensic store may be justified lat
 4. non-mutating existence request against clean storage;
 5. internal ClamAV `PING` / `PONG`.
 
-The public endpoint returns only overall `ready` or `not_ready`; dependency-specific failures stay internal.
+The public endpoint returns only overall `ready` or `not_ready`; dependency-specific failures stay internal. The permanent integration CI boots PostgreSQL, Redis, MinIO, ClamAV and the non-root Laravel application, applies real PostgreSQL migrations and requires this readiness path to become healthy before teardown. This is dependency/readiness evidence, not yet a full real-engine file-processing E2E claim.
 
 ## Initial file policy
 

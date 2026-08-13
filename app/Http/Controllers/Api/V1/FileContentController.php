@@ -47,11 +47,8 @@ class FileContentController
             'Pragma' => 'no-cache',
             'X-Content-Type-Options' => 'nosniff',
             'Content-Type' => $storedFile->detected_mime_type ?: 'application/octet-stream',
+            'Content-Length' => (string) $storedFile->size_bytes,
         ];
-
-        if (is_int($storedFile->size_bytes) && $storedFile->size_bytes >= 0) {
-            $headers['Content-Length'] = (string) $storedFile->size_bytes;
-        }
 
         return response()->streamDownload(
             function () use ($stream): void {

@@ -320,6 +320,46 @@ Successful keys are cleared only after storage deletion succeeds. Non-deleted ro
 
 **Known boundary:** generic bucket-wide orphan discovery is not implemented.
 
+## D-037 — OpenAPI 3.0.3 is a machine-checked V1 contract
+
+**Status:** Accepted for V1
+
+**Decision:** maintain `openapi.yaml` as OpenAPI 3.0.3 and fail CI when its public GET/POST/DELETE path set drifts from Laravel's V1 + health route table.
+
+**Why:** the API contract should be reviewable by people and tooling rather than existing only as prose. OpenAPI 3.0.3 matches the selected PHP validation toolchain.
+
+## D-038 — Composer dependency resolution is committed
+
+**Status:** Accepted for V1
+
+**Decision:** commit `composer.lock`, validate it strictly and install the locked graph in CI.
+
+**Why:** release evidence must be reproducible and should not silently resolve a different dependency graph on every run.
+
+## D-039 — Static analysis has no baseline
+
+**Status:** Accepted for V1
+
+**Decision:** run Larastan/PHPStan at level 5 across `app` and `routes` without an error baseline.
+
+**Why:** the repository is small enough to fix current typing findings instead of institutionalizing known debt as an initial baseline.
+
+## D-040 — Secret hygiene scans full Git history
+
+**Status:** Accepted for V1
+
+**Decision:** a separate Gitleaks job checks full repository history. The action is pinned to an immutable commit and the permanent workflow retains read-only repository permissions.
+
+**Boundary:** a passing pattern scanner reduces risk but is not mathematical proof that arbitrary sensitive information cannot exist.
+
+## D-041 — Real integration evidence proves readiness, not full scanning E2E
+
+**Status:** Accepted for V1
+
+**Decision:** CI boots the non-root Laravel app with PostgreSQL, Redis, MinIO, bucket initialization and ClamAV, applies real PostgreSQL migrations, and requires `/health/ready` to become `ready`.
+
+**Evidence boundary:** this proves dependency wiring and concrete readiness checks against real containers. Until a deterministic harmless test-signature flow is added, it does not claim real-engine upload → verdict → controlled-delivery E2E coverage.
+
 ## Deferred decisions
 
 The following are intentionally not frozen yet:
