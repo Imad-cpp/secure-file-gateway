@@ -101,9 +101,6 @@ These boundaries remain explicit so the portfolio does not inflate local/contain
 
 The release-artifact gate is now prepared in-repository: `LICENSE` contains the MIT License, `CHANGELOG.md` records the V1 release-candidate scope, and `docs/releases/v1.0.0.md` is the source for the future GitHub release notes. None of those files implies that the tag already exists.
 
-Before tagging public `v1.0.0`, the remaining evidence should include:
+The final Definition-of-Done review is recorded in `docs/V1_RELEASE_AUDIT.md` and enforced by the permanent dependent `release-audit` job. That job can run only after `php-quality`, `secret-hygiene` and `infrastructure-integration` succeed on the same commit, then verifies the required V1 artifacts and evidence boundaries and emits `V1_RELEASE_AUDIT=PASS`.
 
-1. a complete Definition-of-Done review against the exact release commit;
-2. green post-merge CI on the release candidate.
-
-The deterministic real-ClamAV clean + EICAR application-path check, reproducible synthetic public demo and release-artifact preparation are now satisfied.
+Before tagging public `v1.0.0`, the remaining release evidence is one green post-merge `Application Quality` run on the exact `main` commit selected for the tag, including successful `release-audit`. The deterministic real-ClamAV clean + EICAR application-path check, reproducible synthetic public demo, release-artifact preparation and machine-checked DoD gate are now implemented.

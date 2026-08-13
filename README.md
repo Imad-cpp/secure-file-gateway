@@ -2,7 +2,7 @@
 
 Security-focused file upload and delivery API built around **validation, quarantine, asynchronous malware scanning, controlled delivery, deletion and auditability**.
 
-> **Status:** The V1 contract and core release-evidence gates are machine checked, including real ClamAV application-path evidence and a CI-executed reproducible public demo. The MIT license, changelog and prepared `v1.0.0` release notes are now in-repository. The exact-commit Definition-of-Done audit and tagged V1 release remain; no production-readiness, availability-guarantee or malware-detection-completeness claim is made.
+> **Status:** The V1 contract, security evidence, release artifacts and Definition-of-Done are now encoded in permanent machine-checked gates, including a dependent `release-audit` job that runs only after PHP quality, secret hygiene and real infrastructure integration succeed on the same commit. The `v1.0.0` tag/release remains unpublished until that gate is green on the exact `main` commit selected for release; no production-readiness, availability-guarantee or malware-detection-completeness claim is made.
 
 ## Why this project exists
 
@@ -307,6 +307,7 @@ State transitions are server-controlled. Clients can request deletion but cannot
 - [OpenAPI Contract](openapi.yaml) — machine-checked OpenAPI 3.0.3 description of the public V1 HTTP surface.
 - [Reproducible V1 Demo](docs/V1_DEMO.md) — executable synthetic clean-file user journey verified by the permanent integration gate.
 - [V1 Evidence Ledger](docs/V1_EVIDENCE.md) — explicit record of what CI proves and what the release still does not claim.
+- [V1 Release Audit](docs/V1_RELEASE_AUDIT.md) — Definition-of-Done verdict, exact-commit release gate and tagging rule.
 - [Changelog](CHANGELOG.md) — release-candidate change record; `v1.0.0` remains unreleased until the final gate passes.
 - [Prepared V1 Release Notes](docs/releases/v1.0.0.md) — source material for the future GitHub `v1.0.0` release.
 - [MIT License](LICENSE) — terms for use, modification and redistribution of the project source.
@@ -337,7 +338,7 @@ Uploads return `202 Accepted`. Clients poll the owned file resource as asynchron
 
 ## Quality gate
 
-Pull requests and pushes to `main` run three independent `Application Quality` jobs. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations, requires `/health/ready` to become `ready`, starts the real scan worker, executes the clean + EICAR ClamAV lifecycle check, then executes the reproducible synthetic public V1 demo before teardown.
+Pull requests and pushes to `main` run three substantive `Application Quality` jobs plus a dependent release gate. `php-quality` strictly validates the committed Composer lock, installs the locked graph, runs Pint, Larastan/PHPStan level 5 without a baseline, the full test suite including OpenAPI route-drift checks, and Composer audit. `secret-hygiene` scans full repository history with Gitleaks. `infrastructure-integration` boots the non-root Laravel app with PostgreSQL, Redis, MinIO and ClamAV, applies PostgreSQL migrations, requires `/health/ready` to become `ready`, starts the real scan worker, executes the clean + EICAR ClamAV lifecycle check, then executes the reproducible synthetic public V1 demo before teardown. `release-audit` runs only after all three succeed and machine-checks the V1 Definition-of-Done/release artifacts on that same commit.
 
 Coverage includes identity/ownership controls, ingestion policy, MIME mismatch rejection, quarantine cleanup, SHA-256 duplicate isolation, upload throttling, queue handoff compensation, scan-job dispatch, clean promotion, unsafe rejection, fail-closed scanner errors, terminal-state idempotency, ClamAV reply parsing, download ownership, non-available denial, signed-URL tampering/expiry, private streaming, deletion idempotency, capability revocation, duplicate-hash release after deletion, request-ID spoofing resistance, error-response correlation, audit metadata sanitization, failed-login audit hygiene, readiness response semantics and deleted-object reconciliation safety.
 
@@ -374,7 +375,7 @@ The goal is to make the core security boundary **small enough to understand and 
 6. **Controlled delivery** — signed capability, private streaming and deletion behavior. **✓**
 7. **Security hardening** — request correlation, audit events, dependency readiness, targeted reconciliation and vulnerability reporting. **✓**
 8. **V1 contract + evidence hardening** — OpenAPI route drift, locked dependencies, static analysis, secret hygiene and real dependency readiness. **✓**
-9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; MIT license + changelog + prepared release notes **✓**; final exact-commit DoD audit and tagged V1 remain. **← current**
+9. **Release-candidate evidence** — real-engine end-to-end check **✓**; reproducible public demo **✓**; MIT license + changelog + prepared release notes **✓**; exact-commit DoD release gate **✓ automated**; tagged V1 remains. **← current**
 
 ## Repository principle
 
