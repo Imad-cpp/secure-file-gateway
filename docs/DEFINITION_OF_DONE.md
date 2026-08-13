@@ -159,6 +159,8 @@ Required test layers:
 - duplicate-detection policy;
 - security-sensitive value/log sanitization helpers where applicable.
 
+**Current unit status:** production-used lifecycle, ingestion, duplicate, object-key and audit-sanitizer policies now have focused unit coverage, alongside ClamAV reply/result mapping tests.
+
 ### Feature/API
 
 - authentication;
@@ -195,7 +197,7 @@ Pull-request CI must fail on relevant quality problems and include, as the imple
 
 CI configuration itself is reviewable code and follows least privilege.
 
-The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. The MIT license, changelog and prepared `v1.0.0` release notes are now present. The remaining release work is the exact-commit DoD review and tagged release—not the core quality, real-engine, demo or release-artifact gates listed above.
+The current `Application Quality` gate strictly validates and installs the committed Composer lock, runs Pint, Larastan/PHPStan level 5 without a baseline, the complete PHPUnit suite including OpenAPI route-drift and CORS deny-by-default checks, Composer audit, a separate full-history Gitleaks scan, and a real-container infrastructure job that includes both the clean + EICAR ClamAV application-path scenario and the reproducible synthetic public V1 demo. A dependent `release-audit` job runs only after those three substantive jobs succeed and machine-checks the V1 Definition-of-Done/release artifacts on the same commit. The remaining publication step is a green post-merge exact-main gate followed by the immutable `v1.0.0` tag/release.
 
 ## Local developer experience
 
@@ -225,6 +227,7 @@ The repository must keep these current:
 - `docs/DECISIONS.md`;
 - `docs/DEFINITION_OF_DONE.md`;
 - `docs/V1_DEMO.md`;
+- `docs/V1_RELEASE_AUDIT.md`;
 - `SECURITY.md`;
 - OpenAPI specification before public V1;
 - `CHANGELOG.md`;

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Files\FileLifecyclePolicy;
 use App\Models\StoredFile;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -12,7 +13,7 @@ class DeletedFileReconciler
     {
         $limit = max(1, min($limit, 1000));
         $files = StoredFile::query()
-            ->where('state', 'DELETED')
+            ->where('state', FileLifecyclePolicy::DELETED)
             ->where(function ($query): void {
                 $query->whereNotNull('quarantine_object_key')
                     ->orWhereNotNull('clean_object_key');

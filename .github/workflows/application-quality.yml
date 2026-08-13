@@ -127,3 +127,18 @@ jobs:
       - name: Stop integration environment
         if: always()
         run: docker compose down -v --remove-orphans
+
+  release-audit:
+    needs:
+      - php-quality
+      - secret-hygiene
+      - infrastructure-integration
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Verify V1 Definition-of-Done release gate
+        run: bash scripts/check-v1-release-audit.sh

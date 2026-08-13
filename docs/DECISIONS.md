@@ -394,6 +394,26 @@ The permanent real-container integration job runs the same script after migratio
 
 **Boundary:** the license applies to the repository source and documentation as stated by the license text. It does not create a production warranty, security guarantee or support commitment.
 
+## D-045 — V1 tagging requires a successful exact-commit release audit
+
+**Status:** Accepted for V1
+
+**Decision:** the permanent `Application Quality` workflow includes a `release-audit` job that depends on successful `php-quality`, `secret-hygiene` and `infrastructure-integration` jobs. It then runs `scripts/check-v1-release-audit.sh` against the same repository snapshot. The `v1.0.0` tag may target only a `main` commit whose complete workflow, including `release-audit`, succeeds.
+
+**Why:** a manually written Definition-of-Done verdict can drift away from the exact code being tagged. Making the audit a dependent CI gate ties the release claim to one immutable commit and the evidence produced for it.
+
+**Boundary:** this gate certifies the repository's documented V1 portfolio Definition of Done. It is not a production-readiness, availability, malware-detection-completeness or external security certification.
+
+## D-046 — Cross-origin browser access is denied by default in V1
+
+**Status:** Accepted for V1
+
+**Decision:** `config/cors.php` grants no allowed origins or origin patterns by default. V1 has no browser client requiring cross-origin API access. Any future trusted browser origin must be introduced explicitly with a reviewed requirement and tests.
+
+**Why:** permissive wildcard CORS expands browser-reachable surface without providing value to the current API-only V1.
+
+**Boundary:** CORS is a browser policy boundary, not an authentication control; API authorization remains server-side regardless of origin.
+
 ## Deferred decisions
 
 The following are intentionally not frozen yet:

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\FileLifecycleException;
+use App\Files\FileLifecyclePolicy;
 use App\Models\StoredFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -19,9 +20,9 @@ class FileDeletionService
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($locked->state !== 'DELETED') {
+            if ($locked->state !== FileLifecyclePolicy::DELETED) {
                 $locked->forceFill([
-                    'state' => 'DELETED',
+                    'state' => FileLifecyclePolicy::DELETED,
                     'deleted_sha256' => $locked->deleted_sha256 ?? $locked->sha256,
                     'sha256' => null,
                     'deleted_at' => now(),
@@ -62,7 +63,7 @@ class FileDeletionService
         try {
             StoredFile::query()
                 ->whereKey($file->id)
-                ->where('state', 'DELETED')
+                ->where('state', FileLifecyclePolicy::DELETED)
                 ->update([
                     'quarantine_object_key' => null,
                     'clean_object_key' => null,

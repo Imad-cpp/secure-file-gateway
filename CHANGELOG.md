@@ -29,6 +29,8 @@ The current release candidate establishes the first complete public portfolio bo
 - Real-container CI evidence for both a clean application path and runtime-generated EICAR detection through the normal upload/worker/scanner boundary.
 - Full-history secret scanning, locked dependency installation, static analysis, formatting checks, automated tests and dependency audit in GitHub Actions.
 - Public security policy, architecture, security model, API map, engineering decisions, Definition of Done and evidence ledger.
+- Machine-checked exact-commit V1 release audit that depends on the substantive quality, secret-hygiene and real-infrastructure gates.
+- Focused production-used unit policies for lifecycle, ingestion, duplicate scope, canonical object naming and audit sanitization.
 
 ### Security
 
@@ -40,6 +42,7 @@ The current release candidate establishes the first complete public portfolio bo
 - Cross-user duplicate disclosure is avoided by scoping duplicate checks to the owner.
 - Audit metadata excludes credentials, bearer tokens, signatures, signed URLs, file bodies and private object keys.
 - Permanent GitHub Actions permissions remain read-only and reusable actions are pinned to immutable commit SHAs.
+- Cross-origin browser access is denied by default; V1 grants no CORS origins until a reviewed browser-client requirement exists.
 
 ### Evidence boundary
 
